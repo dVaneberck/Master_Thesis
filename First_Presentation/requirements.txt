@@ -1,0 +1,8 @@
+gym>=0.17.3
+numpy>=1.19.2
+matplotlib>=3.3.2
+Pillow>=7.2.0
+--find-links https://download.pytorch.org/whl/torch_stable.html
+torch==1.6.0+cpu
+torchvision>=0.7.0+cpu
+ipython>=7.18.1
