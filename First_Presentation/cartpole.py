@@ -27,10 +27,12 @@ plt.ion()
 # if gpu is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# tuple representing a single transition:
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 
+# buffer holding recent transitions:
 class ReplayMemory(object):
 
     def __init__(self, capacity):
@@ -46,6 +48,7 @@ class ReplayMemory(object):
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
+        #                   population,   k
         return random.sample(self.memory, batch_size)
 
     def __len__(self):
@@ -126,8 +129,8 @@ env.reset()
 # plt.title('Example extracted screen')
 # plt.show()
 
-BATCH_SIZE = 128
-GAMMA = 0.999
+BATCH_SIZE = 20
+GAMMA = 0.999  # 0.999
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
@@ -154,8 +157,7 @@ steps_done = 0
 def select_action(state):
     global steps_done
     sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-                    math.exp(-1. * steps_done / EPS_DECAY)
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
@@ -249,7 +251,7 @@ def exec_cartpole():
     optimizer = optim.RMSprop(policy_net.parameters())
     memory = ReplayMemory(10000)
 
-    num_episodes = 50
+    num_episodes = 300
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
