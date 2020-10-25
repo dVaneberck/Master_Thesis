@@ -56,11 +56,11 @@ class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=2)
+        self.conv1 = nn.Conv2d(3, 8, kernel_size=5, stride=2)
+        self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=5, stride=2)
+        self.bn2 = nn.BatchNorm2d(16)
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
         self.bn3 = nn.BatchNorm2d(32)
 
         # Number of Linear input connections depends on output of conv2d layers
@@ -71,7 +71,8 @@ class DQN(nn.Module):
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
         linear_input_size = convw * convh * 32
-        self.head = nn.Linear(linear_input_size, outputs)
+        self.head1 = nn.Linear(linear_input_size, linear_input_size//2)
+        self.head2 = nn.Linear(linear_input_size//2, outputs)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
@@ -79,7 +80,7 @@ class DQN(nn.Module):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
-        return self.head(x.view(x.size(0), -1))
+        return self.head2(self.head1(x.view(x.size(0), -1)))
 
 
 resize = T.Compose([T.ToPILImage(),
@@ -241,7 +242,9 @@ def exec_mountaincar():
 
     global policy_net, target_net
     policy_net = DQN(screen_height, screen_width, n_actions).to(device)
+    test = policy_net
     target_net = DQN(screen_height, screen_width, n_actions).to(device)
+    test2 = target_net
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
@@ -249,7 +252,7 @@ def exec_mountaincar():
     optimizer = optim.RMSprop(policy_net.parameters())
     memory = ReplayMemory(10000)
 
-    num_episodes = 50
+    num_episodes = 300
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
@@ -259,8 +262,11 @@ def exec_mountaincar():
         for t in count():
             # Select and perform an action
             action = select_action(state)
-            _, reward, done, _ = env.step(action.item())
-            reward = torch.tensor([reward], device=device)
+            m_state, _, done, _ = env.step(action.item())
+            reward = m_state[0] + 0.5
+            if m_state[0] > 0.5:
+                reward += 1
+            reward = torch.tensor([float(reward)], device=device)
 
             # Observe new state
             last_screen = current_screen
@@ -291,6 +297,3 @@ def exec_mountaincar():
     env.close()
     plt.ioff()
     plt.show()
-
-
-

@@ -126,7 +126,7 @@ env.reset()
 # plt.title('Example extracted screen')
 # plt.show()
 
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 GAMMA = 0.999
 EPS_START = 0.9
 EPS_END = 0.05
@@ -225,7 +225,8 @@ def optimize_model():
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
     # Compute Huber loss
-    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+    # loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+    loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Optimize the model
     optimizer.zero_grad()
@@ -247,9 +248,9 @@ def exec_cartpole():
 
     global optimizer, memory
     optimizer = optim.RMSprop(policy_net.parameters())
-    memory = ReplayMemory(10000)
+    memory = ReplayMemory(100000)
 
-    num_episodes = 50
+    num_episodes = 200
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
