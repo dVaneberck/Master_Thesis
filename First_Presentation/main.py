@@ -4,6 +4,10 @@ from mountaincar import exec_mountaincar
 
 
 def main(args):
+    if len(args) == 1:
+        print("Value 1 (cartpole) or value 2 (mountaincar) expected.")
+        return
+
     if int(args[1]) == 1:
         exec_cartpole()
     elif int(args[1]) == 2:
