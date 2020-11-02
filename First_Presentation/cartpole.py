@@ -78,6 +78,7 @@ class DQN(nn.Module):
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
+        # x = self.maxpool(F.relu(self.bn3(self.conv3(x))))
         x = F.relu(self.bn3(self.conv3(x)))
         return self.head(x.view(x.size(0), -1))
 
@@ -126,12 +127,12 @@ env.reset()
 # plt.title('Example extracted screen')
 # plt.show()
 
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 GAMMA = 0.999
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
-TARGET_UPDATE = 10
+TARGET_UPDATE = 5
 
 # Get screen size so that we can initialize layers correctly based on shape
 # returned from AI gym. Typical dimensions at this point are close to 3x40x90
@@ -250,7 +251,7 @@ def exec_cartpole():
     optimizer = optim.RMSprop(policy_net.parameters())
     memory = ReplayMemory(100000)
 
-    num_episodes = 200
+    num_episodes = 500
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()

@@ -56,11 +56,11 @@ class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=5, stride=2)
-        self.bn1 = nn.BatchNorm2d(8)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=5, stride=2)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
+        self.bn2 = nn.BatchNorm2d(32)
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=2)
         self.bn3 = nn.BatchNorm2d(32)
 
         # Number of Linear input connections depends on output of conv2d layers
@@ -71,16 +71,16 @@ class DQN(nn.Module):
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
         linear_input_size = convw * convh * 32
-        self.head1 = nn.Linear(linear_input_size, linear_input_size//2)
-        self.head2 = nn.Linear(linear_input_size//2, outputs)
+        self.head = nn.Linear(linear_input_size, outputs)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
+        # x = self.maxpool(F.relu(self.bn3(self.conv3(x))))
         x = F.relu(self.bn3(self.conv3(x)))
-        return self.head2(self.head1(x.view(x.size(0), -1)))
+        return self.head(x.view(x.size(0), -1))
 
 
 resize = T.Compose([T.ToPILImage(),
@@ -89,7 +89,7 @@ resize = T.Compose([T.ToPILImage(),
 
 
 def get_cart_location(screen_width):
-    world_width = env.goal_position * 2
+    world_width = screen_width
     scale = screen_width / world_width
     return int(env.state[0] * scale + screen_width / 2.0)  # MIDDLE OF CART
 
@@ -100,8 +100,8 @@ def get_screen():
     screen = env.render(mode='rgb_array').transpose((2, 0, 1))
     # Cart is in the lower half, so strip off the top and bottom of the screen
     _, screen_height, screen_width = screen.shape
-    screen = screen[:, int(screen_height * 0.4):int(screen_height * 0.8)]
-    view_width = int(screen_width * 0.6)
+    # screen = screen[:, int(screen_height * 0.4):int(screen_height * 0.8)]
+    view_width = int(screen_width)
     cart_location = get_cart_location(screen_width)
     if cart_location < view_width // 2:
         slice_range = slice(view_width)
@@ -121,13 +121,13 @@ def get_screen():
 
 
 env.reset()
-# plt.figure()
-# plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(),
-#            interpolation='none')
-# plt.title('Example extracted screen')
-# plt.show()
+plt.figure()
+plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(),
+           interpolation='none')
+plt.title('Example extracted screen')
+plt.show()
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 GAMMA = 0.999
 EPS_START = 0.9
 EPS_END = 0.05
@@ -158,7 +158,7 @@ def select_action(state):
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
                     math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold:
+    if sample > 0:
         with torch.no_grad():
             # t.max(1) will return largest column value of each row.
             # second column on max result is index of where max element was
@@ -250,7 +250,7 @@ def exec_mountaincar():
 
     global optimizer, memory
     optimizer = optim.RMSprop(policy_net.parameters())
-    memory = ReplayMemory(10000)
+    memory = ReplayMemory(1000000)
 
     num_episodes = 300
     for i_episode in range(num_episodes):
@@ -262,10 +262,12 @@ def exec_mountaincar():
         for t in count():
             # Select and perform an action
             action = select_action(state)
-            m_state, _, done, _ = env.step(action.item())
-            reward = m_state[0] + 0.5
-            if m_state[0] > 0.5:
-                reward += 1
+            m_state, reward, done, _ = env.step(action.item())
+            # reward = m_state[0] + 0.5
+            # if m_state[0] > 0.5:
+            #     reward += 1
+            if done:
+                reward += 100
             reward = torch.tensor([float(reward)], device=device)
 
             # Observe new state
