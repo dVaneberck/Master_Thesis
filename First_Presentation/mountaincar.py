@@ -89,9 +89,9 @@ resize = T.Compose([T.ToPILImage(),
 
 
 def get_cart_location(screen_width):
-    world_width = screen_width
+    world_width = env.max_position - env.min_position
     scale = screen_width / world_width
-    return int(env.state[0] * scale + screen_width / 2.0)  # MIDDLE OF CART
+    return int((env.state[0] - env.min_position) * scale)  # MIDDLE OF CART
 
 
 def get_screen():
@@ -250,7 +250,7 @@ def exec_mountaincar():
 
     global optimizer, memory
     optimizer = optim.RMSprop(policy_net.parameters())
-    memory = ReplayMemory(1000000)
+    memory = ReplayMemory(100000)
 
     num_episodes = 300
     for i_episode in range(num_episodes):
@@ -260,14 +260,18 @@ def exec_mountaincar():
         current_screen = get_screen()
         state = current_screen - last_screen
         for t in count():
+            # plt.figure()
+            # plt.imshow(current_screen.cpu().squeeze(0).permute(1, 2, 0).numpy(),
+            #            interpolation='none')
+            # plt.title('Extracted current screen')
+            # plt.show()
+
             # Select and perform an action
             action = select_action(state)
             m_state, reward, done, _ = env.step(action.item())
             # reward = m_state[0] + 0.5
             # if m_state[0] > 0.5:
             #     reward += 1
-            if done:
-                reward += 100
             reward = torch.tensor([float(reward)], device=device)
 
             # Observe new state
