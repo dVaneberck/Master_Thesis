@@ -250,9 +250,9 @@ def exec_mountaincar():
 
     global optimizer, memory
     optimizer = optim.RMSprop(policy_net.parameters())
-    memory = ReplayMemory(100000)
+    memory = ReplayMemory(10000)
 
-    num_episodes = 300
+    num_episodes = 50
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
