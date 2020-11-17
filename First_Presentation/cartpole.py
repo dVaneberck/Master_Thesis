@@ -27,10 +27,12 @@ plt.ion()
 # if gpu is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# tuple representing a single transition:
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 
+# buffer holding recent transitions:
 class ReplayMemory(object):
 
     def __init__(self, capacity):
@@ -46,6 +48,7 @@ class ReplayMemory(object):
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
+        #                   population,   k
         return random.sample(self.memory, batch_size)
 
     def __len__(self):
@@ -78,7 +81,6 @@ class DQN(nn.Module):
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
-        # x = self.maxpool(F.relu(self.bn3(self.conv3(x))))
         x = F.relu(self.bn3(self.conv3(x)))
         return self.head(x.view(x.size(0), -1))
 
@@ -132,7 +134,7 @@ GAMMA = 0.999
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
-TARGET_UPDATE = 5
+TARGET_UPDATE = 10
 
 # Get screen size so that we can initialize layers correctly based on shape
 # returned from AI gym. Typical dimensions at this point are close to 3x40x90
@@ -155,8 +157,7 @@ steps_done = 0
 def select_action(state):
     global steps_done
     sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-                    math.exp(-1. * steps_done / EPS_DECAY)
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
@@ -188,7 +189,7 @@ def plot_durations():
     plt.pause(0.001)  # pause a bit so that plots are updated
     if is_ipython:
         display.clear_output(wait=True)
-        display.display(plt.gcf())
+        display.display(plt.gcf(), block=False)
 
 
 def optimize_model():
@@ -226,8 +227,8 @@ def optimize_model():
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
     # Compute Huber loss
-    # loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-    loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+    #loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Optimize the model
     optimizer.zero_grad()
@@ -249,7 +250,7 @@ def exec_cartpole():
 
     global optimizer, memory
     optimizer = optim.RMSprop(policy_net.parameters())
-    memory = ReplayMemory(100000)
+    memory = ReplayMemory(30000)
 
     num_episodes = 500
     for i_episode in range(num_episodes):
