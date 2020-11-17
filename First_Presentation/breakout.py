@@ -248,8 +248,8 @@ def exec_breakout():
     policy_net = DQN(screen_height, screen_width, n_actions).to(device)
     target_net = DQN(screen_height, screen_width, n_actions).to(device)
 
-    # policy_net = torch.load('saveold/model_7000')
-    # target_net = torch.load('saveold/model_7000')
+    # policy_net = torch.load('save/model_2000')
+    # target_net = torch.load('save/model_2000')
 
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
@@ -304,7 +304,7 @@ def exec_breakout():
         if i_episode % TARGET_UPDATE == 0:
             # plot_durations()
             target_net.load_state_dict(policy_net.state_dict())
-            torch.save(policy_net, './save/model_'+str(i_episode))
+            # torch.save(policy_net, './save/model_'+str(i_episode))
 
     print('Complete')
     env.render()
