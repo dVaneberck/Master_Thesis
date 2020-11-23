@@ -31,48 +31,109 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
+Transition2 = namedtuple(
+    'Transition2', ['state', 'action', 'reward', 'next_state', 'terminal'])
+
 
 # buffer holding recent transitions:
+# class ReplayMemory(object):
+#
+#     def __init__(self, capacity):
+#         self.capacity = capacity
+#         self.memory = []
+#         self.position = 0
+#
+#     def push(self, *args):
+#         """Saves a transition."""
+#         if len(self.memory) < self.capacity:
+#             self.memory.append(None)
+#         self.memory[self.position] = Transition(*args)
+#         self.position = (self.position + 1) % self.capacity
+#
+#     def sample(self, batch_size):
+#         #                   population,   k
+#         return random.sample(self.memory, batch_size)
+#
+#     def __len__(self):
+#         return len(self.memory)
+
 class ReplayMemory(object):
-
-    def __init__(self, capacity):
+    def __init__(self, capacity, alpha=0.6, beta_start=0.4, beta_frames=10000):
+        self.prob_alpha = alpha
         self.capacity = capacity
-        self.memory = []
-        self.position = 0
+        self.buffer = []
+        self.priorities = np.zeros((capacity,), dtype=np.float32)
+        self.frame = 1
+        self.beta_start = beta_start
+        self.beta_frames = beta_frames
 
-    def push(self, *args):
-        """Saves a transition."""
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        self.memory[self.position] = Transition(*args)
-        self.position = (self.position + 1) % self.capacity
+    def beta_by_frame(self, frame_idx):
+        return min(1.0, self.beta_start + frame_idx * (1.0 - self.beta_start) / self.beta_frames)
+
+    def push(self, transition):
+        max_prio = self.priorities.max() if self.buffer else 1.0**self.prob_alpha
+
+        total = len(self.buffer)
+        if total < self.capacity:
+            pos = total
+            self.buffer.append(transition)
+        else:
+            prios = self.priorities[:total]
+            probs = (1 - prios / prios.sum()) / (total - 1)
+            pos = np.random.choice(total, 1, p=probs)
+
+        self.priorities[pos] = max_prio
 
     def sample(self, batch_size):
-        #                   population,   k
-        return random.sample(self.memory, batch_size)
+        total = len(self.buffer)
+        prios = self.priorities[:total]
+        probs = prios / prios.sum()
+
+        indices = np.random.choice(total, batch_size, p=probs)
+        samples = [self.buffer[idx] for idx in indices]
+
+        beta = self.beta_by_frame(self.frame)
+        self.frame += 1
+
+        # Min of ALL probs, not just sampled probs
+        prob_min = probs.min()
+        max_weight = (prob_min*total)**(-beta)
+
+        weights = (total * probs[indices]) ** (-beta)
+        weights /= max_weight
+        weights = torch.tensor(weights, device=device, dtype=torch.float)
+
+        return samples, indices, weights
+
+    def update_priorities(self, batch_indices, batch_priorities):
+        for idx, prio in zip(batch_indices, batch_priorities):
+            self.priorities[idx] = (prio + 1e-5)**self.prob_alpha
 
     def __len__(self):
-        return len(self.memory)
+        return len(self.buffer)
 
 
 class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=2)
+        self.conv1 = nn.Conv2d(3, 8, kernel_size=5, padding=2, stride=2)
+        self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=5, padding=2, stride=2)
+        self.bn2 = nn.BatchNorm2d(16)
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=5, padding=2, stride=2)
         self.bn3 = nn.BatchNorm2d(32)
+        self.conv4 = nn.Conv2d(32, 32, kernel_size=5, padding=2, stride=2)
+        self.bn4 = nn.BatchNorm2d(32)
 
         # Number of Linear input connections depends on output of conv2d layers
         # and therefore the input image size, so compute it.
         def conv2d_size_out(size, kernel_size=5, stride=2):
-            return (size - (kernel_size - 1) - 1) // stride + 1
+            return (size - kernel_size + 4) // stride + 1
 
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
-        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
+        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(w))))
+        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(h))))
+
         linear_input_size = convw * convh * 32
         self.head = nn.Linear(linear_input_size, outputs)
 
@@ -82,6 +143,7 @@ class DQN(nn.Module):
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
         return self.head(x.view(x.size(0), -1))
 
 
@@ -129,12 +191,12 @@ env.reset()
 # plt.title('Example extracted screen')
 # plt.show()
 
-BATCH_SIZE = 128
-GAMMA = 0.999
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 200
-TARGET_UPDATE = 10
+BATCH_SIZE = 256
+GAMMA = 1.0
+EPS_START = 1.0
+EPS_END = 0.01
+EPS_DECAY = 10
+TARGET_UPDATE = 200
 
 # Get screen size so that we can initialize layers correctly based on shape
 # returned from AI gym. Typical dimensions at this point are close to 3x40x90
@@ -158,7 +220,7 @@ def select_action(state):
     global steps_done
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
-    steps_done += 1
+    # steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
             # t.max(1) will return largest column value of each row.
@@ -195,11 +257,11 @@ def plot_durations():
 def optimize_model():
     if len(memory) < BATCH_SIZE:
         return
-    transitions = memory.sample(BATCH_SIZE)
+    transitions, ids, _ = memory.sample(BATCH_SIZE)
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
-    batch = Transition(*zip(*transitions))
+    batch = Transition2(*zip(*transitions))
 
     # Compute a mask of non-final states and concatenate the batch elements
     # (a final state would've been the one after which simulation ended)
@@ -230,6 +292,10 @@ def optimize_model():
     loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
     #loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
+    diff = state_action_values.squeeze() - expected_state_action_values
+    delta = diff.abs().detach().cpu().numpy().tolist()
+    memory.update_priorities(ids, delta)
+
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
@@ -249,16 +315,21 @@ def exec_cartpole():
     target_net.eval()
 
     global optimizer, memory
-    optimizer = optim.RMSprop(policy_net.parameters())
-    memory = ReplayMemory(30000)
+    # optimizer = optim.RMSprop(policy_net.parameters())
+    optimizer = optim.Adam(policy_net.parameters(), 3e-5)
 
-    num_episodes = 500
+    memory = ReplayMemory(10000)
+
+    num_episodes = 5000
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
         last_screen = get_screen()
         current_screen = get_screen()
         state = current_screen - last_screen
+
+        global steps_done
+        steps_done += 1
         for t in count():
             # Select and perform an action
             action = select_action(state)
@@ -274,7 +345,8 @@ def exec_cartpole():
                 next_state = None
 
             # Store the transition in memory
-            memory.push(state, action, next_state, reward)
+            # memory.push(state, action, next_state, reward)
+            memory.push(Transition2(state, action, reward, next_state, done))
 
             # Move to the next state
             state = next_state
