@@ -1,7 +1,7 @@
 import sys
 from cartpole import exec_cartpole
-from mountaincar import exec_mountaincar
-from breakout import exec_breakout
+from todo.mountaincar import exec_mountaincar
+from todo.breakout import exec_breakout
 
 
 def main(args):
