@@ -477,8 +477,19 @@ def training():
             # Select and perform an action
             eps = epsilon_by_frame(history.total_episode)
             action = select_action(state, eps)
+            time.sleep(0.06)
+            print('step')
+            if keyboard.is_pressed('l'):
+                action = 0
+                print('left')
+            elif keyboard.is_pressed('m'):
+                action = 1
+                print('right')
+            else:
+                action = random.random()
+                print('else')
             history.step_eps.append(eps)
-            _, reward, done, _ = env.step(action.item())
+            _, reward, done, _ = env.step(round(action))
             reward = torch.tensor([reward], device=device)
 
             # Render the step in another thread
@@ -527,53 +538,7 @@ for i in av_lenghs:
 
 file.close()
 
-# torch.save({
-#     'policy_net': policy_net.state_dict(),
-#     'target_net': target_net.state_dict(),
-#     'optimizer': optimizer.state_dict()
-# }, save_name + '.pt')
-
-# with open(save_name + '.pickle', 'wb') as f:
-#     pickle.dump({'history': history, 'config': config},
-#                 f, pickle.HIGHEST_PROTOCOL)
-#
-# with open(save_name + '.pickle', 'rb') as f:
-#     data = pickle.load(f)
-#     history = data['history']
-#     config = data['config']
-
-# checkpoint = torch.load(save_name + '.pt')
-# policy_net = DQN(screen_height, screen_width,
-#                  config.conv_layer_settings, config.dueling).to(device)
-# policy_net.load_state_dict(checkpoint['policy_net'])
-# policy_net.eval()
 
 
-def testing():
-    for i in range(5):
-        env.reset()
-
-        init_screen = get_screen()
-        screens = deque([init_screen] * 3, 3)
-        state = torch.cat(list(screens), dim=1)
-        total_reward = 0
-
-        while True:
-            # Select and perform an action
-            action = select_action(state, 0)
-            _, reward, done, _ = env.step(action.item())
-            total_reward += reward
-
-            # Render the next_state and remember it
-            screens.append(get_screen())
-            next_state = torch.cat(list(screens), dim=1) if not done else None
-
-            # Move to the next state
-            state = next_state
-
-            if done:
-                print('total reward:', total_reward)
-                break
 
 
-testing()
