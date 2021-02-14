@@ -4,6 +4,7 @@ import random
 import numpy as np
 import time
 import pickle
+import keyboard
 
 from collections import namedtuple
 
@@ -41,18 +42,19 @@ resume = False
 class Config():
 
     def __init__(self):
+        self.n_episode = 1000
         self.epsilon_start = 1.0
         self.epsilon_final = 0.01
-        self.epsilon_decay = 10
+        self.epsilon_decay = 15
         self.TARGET_UPDATE = 200
-        self.BATCH_SIZE = 256
+        self.BATCH_SIZE = 128
         self.start_from = 512
         self.GAMMA = 1
         self.dueling = True
         self.plot_every = 5
         self.lr = 3e-5
         self.optim_method = optim.Adam
-        self.memory_size = 10000
+        self.memory_size = 5000
         self.conv_layer_settings = [
             (3, 8, 5, 2),
             (8, 16, 5, 2),
@@ -246,18 +248,19 @@ def get_screen():
 # renderer = RenderThread(env)
 # renderer.start()
 #
+
+
+
 env.reset()
 # renderer.begin_render()
 screen = get_screen()
 
-plt.figure()
-plt.imshow(screen.cpu().squeeze(0).permute(
-    1, 2, 0).numpy().squeeze(), cmap='gray')
-plt.title('Example extracted screen')
-plt.show()
-# renderer.stop()
-# renderer.join()
-#
+# plt.figure()
+# plt.imshow(screen.cpu().squeeze(0).permute(
+#     1, 2, 0).numpy().squeeze(), cmap='gray')
+# plt.title('Example extracted screen')
+# plt.show()
+
 _, _, screen_height, screen_width = screen.shape
 
 
@@ -287,8 +290,7 @@ class History():
         if len(self.episode_durations) >= 100:
             self.means.append(sum(list(self.episode_durations)[-100:]) / 100)
         else:
-            self.moving_avg = self.moving_avg + \
-                              (t - self.moving_avg) / (self.total_episode + 1)
+            self.moving_avg = self.moving_avg + (t - self.moving_avg) / (self.total_episode + 1)
             self.means.append(self.moving_avg)
         if self.means[-1] > self.peak_mean:
             self.peak_mean = self.means[-1]
@@ -319,43 +321,6 @@ class History():
         plt.pause(0.00001)
 
 
-# comment this out if a checkpoint is available
-# load_name = 'checkpoints/checkpoint'
-
-# Init network
-if resume:
-    print('loading checkpoint...')
-    with open(save_name + '.pickle', 'rb') as f:
-        data = pickle.load(f)
-        history = data['history']
-        config = data['config']
-
-    checkpoint = torch.load(save_name + '.pt')
-
-    policy_net = DQN(screen_height, screen_width,
-                     config.conv_layer_settings).to(device)
-    target_net = DQN(screen_height, screen_width,
-                     config.conv_layer_settings).to(device)
-    policy_net.load_state_dict(checkpoint['policy_net'])
-    target_net.load_state_dict(checkpoint['target_net'])
-
-    optimizer = config.optim_method(policy_net.parameters(), lr=config.lr)
-    optimizer.load_state_dict(checkpoint['optimizer'])
-else:
-    print('fresh start...')
-    history = History()
-    config = Config()
-
-    policy_net = DQN(screen_height, screen_width,
-                     config.conv_layer_settings, config.dueling).to(device)
-    target_net = DQN(screen_height, screen_width,
-                     config.conv_layer_settings, config.dueling).to(device)
-    init_params(policy_net)
-    target_net.load_state_dict(policy_net.state_dict())
-    optimizer = config.optim_method(policy_net.parameters(), lr=config.lr)
-
-memory = ReplayMemory(config.memory_size)
-target_net.eval()
 
 
 def optimize_model(step):
@@ -420,105 +385,200 @@ def select_action(state, eps):
         return torch.tensor([[random.randrange(2)]], device=device, dtype=torch.long)
 
 
-# renderer = RenderThread(env)
-# renderer.start()
+# comment this out if a checkpoint is available
+# load_name = 'checkpoints/checkpoint'
 
-for i_episode in range(10000):
-    history.total_episode += 1
+def training():
 
-    env.reset()
-    # renderer.begin_render()
+    global memory
+    global config
+    global target_net
+    global policy_net
+    global optimizer
 
-    init_screen = get_screen()
-    screens = deque([init_screen] * 3, 3)
-    state = torch.cat(list(screens), dim=1)
-    avg_loss = 0
+    # Init network
+    if resume:
+        print('loading checkpoint...')
+        with open(save_name + '.pickle', 'rb') as f:
+            data = pickle.load(f)
+            history = data['history']
+            config = data['config']
 
-    for t in count():
-        history.step_count += 1
+        checkpoint = torch.load(save_name + '.pt')
 
-        # Select and perform an action
-        eps = epsilon_by_frame(history.total_episode)
-        action = select_action(state, eps)
-        history.step_eps.append(eps)
-        _, reward, done, _ = env.step(action.item())
-        reward = torch.tensor([reward], device=device)
+        policy_net = DQN(screen_height, screen_width,
+                         config.conv_layer_settings).to(device)
+        target_net = DQN(screen_height, screen_width,
+                         config.conv_layer_settings).to(device)
+        policy_net.load_state_dict(checkpoint['policy_net'])
+        target_net.load_state_dict(checkpoint['target_net'])
 
-        # Render the step in another thread
-        # renderer.begin_render()
+        optimizer = config.optim_method(policy_net.parameters(), lr=config.lr)
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    else:
+        print('fresh start...')
+        history = History()
+        config = Config()
 
-        # Do optimization in main thread
-        loss = optimize_model(history.step_count)
-        avg_loss += loss
-        history.step_loss.append(loss)
+        policy_net = DQN(screen_height, screen_width,
+                         config.conv_layer_settings, config.dueling).to(device)
+        target_net = DQN(screen_height, screen_width,
+                         config.conv_layer_settings, config.dueling).to(device)
+        init_params(policy_net)
+        target_net.load_state_dict(policy_net.state_dict())
+        optimizer = config.optim_method(policy_net.parameters(), lr=config.lr)
 
-        # Render the next_state and remember it
-        screens.append(get_screen())
-        next_state = torch.cat(list(screens), dim=1) if not done else None
-        memory.push(Transition(state, action, reward, next_state, done))
+    memory = ReplayMemory(config.memory_size)
+    target_net.eval()
 
-        # Move to the next state
-        state = next_state
+    for i_episode in range(config.n_episode):
+        history.total_episode += 1
 
-        if done:
-            history.update(t, avg_loss)
+        env.reset()
+
+        init_screen = get_screen()
+        screens = deque([init_screen] * 3, 3)
+        state = torch.cat(list(screens), dim=1)
+        avg_loss = 0
+
+        if (i_episode > 0):
+            # print(history.means[-1])
+            av_lenghs.append(history.means[-1])
+
+        if i_episode == 160 and history.means[-1] < 15:
+            print("bad run 0")
             break
 
-# renderer.stop()
-# renderer.join()
-
-torch.save({
-    'policy_net': policy_net.state_dict(),
-    'target_net': target_net.state_dict(),
-    'optimizer': optimizer.state_dict()
-}, save_name + '.pt')
-
-with open(save_name + '.pickle', 'wb') as f:
-    pickle.dump({'history': history, 'config': config},
-                f, pickle.HIGHEST_PROTOCOL)
-
-with open(save_name + '.pickle', 'rb') as f:
-    data = pickle.load(f)
-    history = data['history']
-    config = data['config']
-
-checkpoint = torch.load(save_name + '.pt')
-policy_net = DQN(screen_height, screen_width,
-                 config.conv_layer_settings, config.dueling).to(device)
-policy_net.load_state_dict(checkpoint['policy_net'])
-policy_net.eval()
-
-# renderer = RenderThread(env)
-# renderer.start()
-
-for i in range(5):
-    env.reset()
-    # renderer.begin_render()
-
-    init_screen = get_screen()
-    screens = deque([init_screen] * 3, 3)
-    state = torch.cat(list(screens), dim=1)
-    total_reward = 0
-
-    while True:
-        # Select and perform an action
-        action = select_action(state, 0)
-        _, reward, done, _ = env.step(action.item())
-        total_reward += reward
-
-        # Render the step in another thread
-        # renderer.begin_render()
-
-        # Render the next_state and remember it
-        screens.append(get_screen())
-        next_state = torch.cat(list(screens), dim=1) if not done else None
-
-        # Move to the next state
-        state = next_state
-
-        if done:
-            print('total reward:', total_reward)
+        if i_episode == 250 and history.means[-1] < 40:
+            print("bad run")
             break
 
-# renderer.stop()
-# renderer.join()
+        if i_episode == 600 and history.means[-1] < 80:
+            print("bad run 2")
+            break
+
+        for t in count():
+
+            if keyboard.is_pressed('p'):
+                print("Paused")
+                keyboard.wait('p')
+                print("Resumed")
+                time.sleep(1)
+
+            if keyboard.is_pressed('s'):
+                print("Stopped")
+                print()
+                print("Press y to resume execution with the next run")
+                keyboard.wait("y")
+                return
+
+            history.step_count += 1
+
+            # Select and perform an action
+            eps = epsilon_by_frame(history.total_episode)
+            action = select_action(state, eps)
+            history.step_eps.append(eps)
+            _, reward, done, _ = env.step(action.item())
+            reward = torch.tensor([reward], device=device)
+
+            # Render the step in another thread
+            # renderer.begin_render()
+
+            # Do optimization in main thread
+            loss = optimize_model(history.step_count)
+            avg_loss += loss
+            history.step_loss.append(loss)
+
+            # Render the next_state and remember it
+            screens.append(get_screen())
+            next_state = torch.cat(list(screens), dim=1) if not done else None
+            memory.push(Transition(state, action, reward, next_state, done))
+
+            # Move to the next state
+            state = next_state
+
+            if done:
+                history.update(t, avg_loss)
+                break
+
+
+av_lenghs = []
+
+for run in range(7):
+    print()
+    print("run nb: ", run)
+    av_lenghs.append(-1)
+    training()
+    torch.cuda.empty_cache()
+
+
+n = 1
+r = 0
+file = open("durations", "w+")
+for i in av_lenghs:
+    if i == -1:
+        file.write("run nb: " + str(r) + '\n')
+        r += 1
+        n = 1
+    else:
+        string = str(n) + " " + str(i) + '\n'
+        file.write(string)
+        n += 1
+
+file.close()
+
+# torch.save({
+#     'policy_net': policy_net.state_dict(),
+#     'target_net': target_net.state_dict(),
+#     'optimizer': optimizer.state_dict()
+# }, save_name + '.pt')
+
+# with open(save_name + '.pickle', 'wb') as f:
+#     pickle.dump({'history': history, 'config': config},
+#                 f, pickle.HIGHEST_PROTOCOL)
+#
+# with open(save_name + '.pickle', 'rb') as f:
+#     data = pickle.load(f)
+#     history = data['history']
+#     config = data['config']
+
+# checkpoint = torch.load(save_name + '.pt')
+# policy_net = DQN(screen_height, screen_width,
+#                  config.conv_layer_settings, config.dueling).to(device)
+# policy_net.load_state_dict(checkpoint['policy_net'])
+# policy_net.eval()
+
+
+def testing():
+    for i in range(5):
+        env.reset()
+
+        init_screen = get_screen()
+        screens = deque([init_screen] * 3, 3)
+        state = torch.cat(list(screens), dim=1)
+        total_reward = 0
+
+        while True:
+            # Select and perform an action
+            action = select_action(state, 0)
+            _, reward, done, _ = env.step(action.item())
+            total_reward += reward
+
+            # Render the next_state and remember it
+            screens.append(get_screen())
+            next_state = torch.cat(list(screens), dim=1) if not done else None
+
+            # Move to the next state
+            state = next_state
+
+            if done:
+                print('total reward:', total_reward)
+                break
+
+
+testing()
+
+
+
+
+
