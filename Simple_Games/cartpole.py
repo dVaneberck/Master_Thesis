@@ -31,10 +31,7 @@ plt.ion()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # tuple representing a single transition:
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
-Transition2 = namedtuple(
+Transition = namedtuple(
     'Transition2', ['state', 'action', 'reward', 'next_state', 'terminal'])
 
 
@@ -72,33 +69,27 @@ class DQN(nn.Module):
         return self.head(x.view(x.size(0), -1))
 
 
-resize = T.Compose([T.ToPILImage(),
-                    T.Resize(40, interpolation=Image.CUBIC),
-                    T.ToTensor()])
+resize = T.Compose([T.ToPILImage(), T.Resize(40, interpolation=Image.CUBIC), T.ToTensor()])
 
 
-def get_cart_location(screen_width):
-    world_width = env.x_threshold * 2
-    scale = screen_width / world_width
-    return int(env.state[0] * scale + screen_width / 2.0)  # MIDDLE OF CART
-
-
-def get_screen():
+def get_screen(show=False):
     screen = env.render(mode='rgb_array')
     screen = cv2.cvtColor(screen, cv2.COLOR_RGB2GRAY)
     screen = cv2.resize(screen, (240, 160), interpolation=cv2.INTER_CUBIC)
     screen[screen < 255] = 0
-    screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
+    screen = screen / 255
     screen = torch.from_numpy(screen)
-    return resize(screen).unsqueeze(0).to(device)
+    screen = resize(screen).unsqueeze(0).to(device)
+    if show:
+        plt.figure()
+        plt.imshow(screen.cpu().squeeze(0).permute(1, 2, 0).numpy(),
+                   interpolation='none', cmap='gray')
+        plt.title('Extracted screen')
+        plt.show()
+    return screen
 
 
 env.reset()
-# plt.figure()
-# plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(),
-#            interpolation='none')
-# plt.title('Example extracted screen')
-# plt.show()
 
 BATCH_SIZE = 256
 GAMMA = 1.0
@@ -164,10 +155,8 @@ def optimize_model():
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
-    batch = Transition2(*zip(*transitions))
+    batch = Transition(*zip(*transitions))
 
-    # Compute a mask of non-final states and concatenate the batch elements
-    # (a final state would've been the one after which simulation ended)
     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                             batch.next_state)), device=device, dtype=torch.bool)
     non_final_next_states = torch.cat([s for s in batch.next_state
@@ -176,30 +165,20 @@ def optimize_model():
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
 
-    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to policy_net
     state_action_values = policy_net(state_batch).gather(1, action_batch)
 
-    # Compute V(s_{t+1}) for all next states.
-    # Expected values of actions for non_final_next_states are computed based
-    # on the "older" target_net; selecting their best reward with max(1)[0].
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
     next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0].detach()
-    # Compute the expected Q values
+
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
-    # Compute Huber loss
     loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-    #loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+    # loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
     diff = state_action_values.squeeze() - expected_state_action_values
     delta = diff.abs().detach().cpu().numpy().tolist()
     memory.update_priorities(ids, delta)
 
-    # Optimize the model
     optimizer.zero_grad()
     loss.backward()
     for param in policy_net.parameters():
@@ -223,7 +202,7 @@ def exec_cartpole():
 
     memory = PER.PrioritizedExperienceReplay(10000)
 
-    num_episodes = 5000
+    num_episodes = 50000
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
@@ -245,11 +224,7 @@ def exec_cartpole():
             else:
                 next_state = None
 
-            # Store the transition in memory
-            # memory.push(state, action, next_state, reward)
-            memory.push(Transition2(state, action, reward, next_state, done))
-
-            # Move to the next state
+            memory.push(Transition(state, action, reward, next_state, done))
             state = next_state
 
             # Perform one step of the optimization (on the target network)
@@ -267,6 +242,3 @@ def exec_cartpole():
     env.close()
     plt.ioff()
     plt.show()
-
-
-
