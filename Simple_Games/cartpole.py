@@ -5,7 +5,7 @@ import gym as gym
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from collections import namedtuple
+from collections import namedtuple, deque
 from itertools import count
 from PIL import Image
 
@@ -14,8 +14,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torchvision.transforms as T
+import prioritized__experience_replay as PER
+import cv2
 
 env = gym.make('CartPole-v0').unwrapped
+env.seed(42)
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -35,89 +38,11 @@ Transition2 = namedtuple(
     'Transition2', ['state', 'action', 'reward', 'next_state', 'terminal'])
 
 
-# buffer holding recent transitions:
-# class ReplayMemory(object):
-#
-#     def __init__(self, capacity):
-#         self.capacity = capacity
-#         self.memory = []
-#         self.position = 0
-#
-#     def push(self, *args):
-#         """Saves a transition."""
-#         if len(self.memory) < self.capacity:
-#             self.memory.append(None)
-#         self.memory[self.position] = Transition(*args)
-#         self.position = (self.position + 1) % self.capacity
-#
-#     def sample(self, batch_size):
-#         #                   population,   k
-#         return random.sample(self.memory, batch_size)
-#
-#     def __len__(self):
-#         return len(self.memory)
-
-class ReplayMemory(object):
-    def __init__(self, capacity, alpha=0.6, beta_start=0.4, beta_frames=10000):
-        self.prob_alpha = alpha
-        self.capacity = capacity
-        self.buffer = []
-        self.priorities = np.zeros((capacity,), dtype=np.float32)
-        self.frame = 1
-        self.beta_start = beta_start
-        self.beta_frames = beta_frames
-
-    def beta_by_frame(self, frame_idx):
-        return min(1.0, self.beta_start + frame_idx * (1.0 - self.beta_start) / self.beta_frames)
-
-    def push(self, transition):
-        max_prio = self.priorities.max() if self.buffer else 1.0**self.prob_alpha
-
-        total = len(self.buffer)
-        if total < self.capacity:
-            pos = total
-            self.buffer.append(transition)
-        else:
-            prios = self.priorities[:total]
-            probs = (1 - prios / prios.sum()) / (total - 1)
-            pos = np.random.choice(total, 1, p=probs)
-
-        self.priorities[pos] = max_prio
-
-    def sample(self, batch_size):
-        total = len(self.buffer)
-        prios = self.priorities[:total]
-        probs = prios / prios.sum()
-
-        indices = np.random.choice(total, batch_size, p=probs)
-        samples = [self.buffer[idx] for idx in indices]
-
-        beta = self.beta_by_frame(self.frame)
-        self.frame += 1
-
-        # Min of ALL probs, not just sampled probs
-        prob_min = probs.min()
-        max_weight = (prob_min*total)**(-beta)
-
-        weights = (total * probs[indices]) ** (-beta)
-        weights /= max_weight
-        weights = torch.tensor(weights, device=device, dtype=torch.float)
-
-        return samples, indices, weights
-
-    def update_priorities(self, batch_indices, batch_priorities):
-        for idx, prio in zip(batch_indices, batch_priorities):
-            self.priorities[idx] = (prio + 1e-5)**self.prob_alpha
-
-    def __len__(self):
-        return len(self.buffer)
-
-
 class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=5, padding=2, stride=2)
+        self.conv1 = nn.Conv2d(4, 8, kernel_size=5, padding=2, stride=2)
         self.bn1 = nn.BatchNorm2d(8)
         self.conv2 = nn.Conv2d(8, 16, kernel_size=5, padding=2, stride=2)
         self.bn2 = nn.BatchNorm2d(16)
@@ -159,28 +84,12 @@ def get_cart_location(screen_width):
 
 
 def get_screen():
-    # Returned screen requested by gym is 400x600x3, but is sometimes larger
-    # such as 800x1200x3. Transpose it into torch order (CHW).
-    screen = env.render(mode='rgb_array').transpose((2, 0, 1))
-    # Cart is in the lower half, so strip off the top and bottom of the screen
-    _, screen_height, screen_width = screen.shape
-    screen = screen[:, int(screen_height * 0.4):int(screen_height * 0.8)]
-    view_width = int(screen_width * 0.6)
-    cart_location = get_cart_location(screen_width)
-    if cart_location < view_width // 2:
-        slice_range = slice(view_width)
-    elif cart_location > (screen_width - view_width // 2):
-        slice_range = slice(-view_width, None)
-    else:
-        slice_range = slice(cart_location - view_width // 2,
-                            cart_location + view_width // 2)
-    # Strip off the edges, so that we have a square image centered on a cart
-    screen = screen[:, :, slice_range]
-    # Convert to float, rescale, convert to torch tensor
-    # (this doesn't require a copy)
+    screen = env.render(mode='rgb_array')
+    screen = cv2.cvtColor(screen, cv2.COLOR_RGB2GRAY)
+    screen = cv2.resize(screen, (240, 160), interpolation=cv2.INTER_CUBIC)
+    screen[screen < 255] = 0
     screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
     screen = torch.from_numpy(screen)
-    # Resize, and add a batch dimension (BCHW)
     return resize(screen).unsqueeze(0).to(device)
 
 
@@ -197,12 +106,6 @@ EPS_START = 1.0
 EPS_END = 0.01
 EPS_DECAY = 10
 TARGET_UPDATE = 200
-
-# Get screen size so that we can initialize layers correctly based on shape
-# returned from AI gym. Typical dimensions at this point are close to 3x40x90
-# which is the result of a clamped and down-scaled render buffer in get_screen()
-# init_screen = get_screen()
-# _, _, screen_height, screen_width = init_screen.shape
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -318,15 +221,14 @@ def exec_cartpole():
     # optimizer = optim.RMSprop(policy_net.parameters())
     optimizer = optim.Adam(policy_net.parameters(), 3e-5)
 
-    memory = ReplayMemory(10000)
+    memory = PER.PrioritizedExperienceReplay(10000)
 
     num_episodes = 5000
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         env.reset()
-        last_screen = get_screen()
-        current_screen = get_screen()
-        state = current_screen - last_screen
+        screens = deque([init_screen] * 4, 4)
+        state = torch.cat(list(screens), dim=1)
 
         global steps_done
         steps_done += 1
@@ -337,10 +239,9 @@ def exec_cartpole():
             reward = torch.tensor([reward], device=device)
 
             # Observe new state
-            last_screen = current_screen
-            current_screen = get_screen()
+            screens.append(get_screen())
             if not done:
-                next_state = current_screen - last_screen
+                next_state = torch.cat(list(screens), dim=1)
             else:
                 next_state = None
 
