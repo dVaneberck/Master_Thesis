@@ -14,7 +14,7 @@ import torch.optim as optim
 import torch.nn.init as init
 import torch.nn.functional as F
 
-from copy import copy
+from copy import copy, deepcopy
 from itertools import count
 from collections import deque
 
@@ -33,6 +33,9 @@ resize = T.Compose([T.ToPILImage(),
                     T.ToTensor()])
 
 env = gym.make('CartPole-v0').unwrapped
+input_dim = env.observation_space.shape[0]
+output_dim = env.action_space.n
+hidden_dim = 64
 
 model_name = 'Dueling_DDQN_Prior_Memory'
 save_name = 'checkpoints/' + model_name
@@ -49,18 +52,14 @@ class Config():
         self.TARGET_UPDATE = 200
         self.BATCH_SIZE = 256
         self.start_from = 512
-        self.GAMMA = 1
+        self.GAMMA = 0.95 #1
         self.dueling = True
         self.plot_every = 5
         self.lr = 3e-5
         self.optim_method = optim.Adam
         self.memory_size = 10000
-        self.conv_layer_settings = [
-            (3, 8, 5, 2),
-            (8, 16, 5, 2),
-            (16, 32, 5, 2),
-            (32, 32, 5, 2)
-        ]
+
+
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -112,7 +111,7 @@ class ReplayMemory(object):
 
         weights = (total * probs[indices]) ** (-beta)
         weights /= max_weight
-        weights = torch.tensor(weights, device=device, dtype=torch.float)
+        weights = torch.tensor(weights, device=device, dtype=torch.float32)
 
         return samples, indices, weights
 
@@ -124,145 +123,25 @@ class ReplayMemory(object):
         return len(self.buffer)
 
 
-def init_params(net):
-    for m in net.modules():
-        if isinstance(m, nn.Conv2d):
-            init.kaiming_normal_(m.weight, mode='fan_out')
-        elif isinstance(m, nn.BatchNorm2d):
-            init.constant_(m.weight, 1)
-            init.constant_(m.bias, 0)
-        elif isinstance(m, nn.Linear):
-            init.normal_(m.weight, std=1e-3)
-            init.constant_(m.bias, 0)
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, input_size, output_size, kernel_size, stride):
-        super(ConvBlock, self).__init__()
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = kernel_size // 2
-        self.conv = nn.Conv2d(
-            input_size, output_size, kernel_size=kernel_size, stride=stride, padding=self.padding)
-        self.bn = nn.BatchNorm2d(output_size)
-
-    def forward(self, x):
-        return F.relu(self.bn(self.conv(x)))
-
-    def size_out(self, size):
-        return (size - self.kernel_size + self.padding * 2) // self.stride + 1
-
-
 class DQN(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-    def __init__(self, h, w, conv_layer_settings, dueling=False):
-        super(DQN, self).__init__()
-        self.dueling = dueling
+        # Inputs to hidden layer linear transformation
+        self.hidden = nn.Linear(input_dim, hidden_dim)
+        # Output layer, 10 units - one for each digit
+        self.output = nn.Linear(hidden_dim, output_dim)
 
-        conv_blocks = []
-        size = np.array([h, w])
-        for s in conv_layer_settings:
-            block = ConvBlock(s[0], s[1], s[2], s[3])
-            conv_blocks.append(block)
-            size = block.size_out(size)
-        self.conv_step = nn.Sequential(*conv_blocks)
-        linear_input_size = size[0] * size[1] * conv_layer_settings[-1][1]
-
-        if self.dueling:
-            self.adv = nn.Linear(linear_input_size, 2)
-            self.val = nn.Linear(linear_input_size, 1)
-        else:
-            self.head = nn.Linear(linear_input_size, 2)
+        # Define sigmoid activation
+        self.tanh = nn.Tanh()
 
     def forward(self, x):
-        x = self.conv_step(x)
-        x = x.view(x.size(0), -1)
+        # Pass the input tensor through each of our operations
+        x = self.hidden(x)
+        x = self.tanh(x)
+        x = self.output(x)
 
-        if self.dueling:
-            adv = F.relu(self.adv(x))
-            val = F.relu(self.val(x))
-            return val + adv - val.mean()
-        else:
-            return self.head(x)
-
-
-# class RenderThread(Thread):
-#     # Usage:
-#     # 0. call env.step() or env.reset() to update env state
-#     # 1. call begin_render() to schedule a rendering task (non-blocking)
-#     # 2. call get_screen() to get the lastest scheduled result (block main thread if rendering not done)
-#
-#     def __init__(self, env):
-#         super(RenderThread, self).__init__(target=self.render)
-#         self._stop_event = Event()
-#         self._state_event = Event()
-#         self._render_event = Event()
-#         self.env = env
-#
-#     def stop(self):
-#         self._stop_event.set()
-#         self._state_event.set()
-#
-#     def stopped(self):
-#         return self._stop_event.is_set()
-#
-#     def begin_render(self):
-#         self._state_event.set()
-#
-#     def get_screen(self):
-#         self._render_event.wait()
-#         self._render_event.clear()
-#         return self.screen
-#
-#     def render(self):
-#         while not self.stopped():
-#             self._state_event.wait()
-#             self._state_event.clear()
-#
-#             self.screen = self.env.render(
-#                 mode='rgb_array').transpose((2, 0, 1))
-#             self.screen = np.ascontiguousarray(
-#                 self.screen, dtype=np.float32) / 255
-#             self.screen = torch.from_numpy(self.screen)
-#             self.screen = resize(self.screen).unsqueeze(0).to(device)
-#             self._render_event.set()
-
-
-def get_cart_location(screen_width):
-    world_width = env.x_threshold * 2
-    scale = screen_width / world_width
-    return int(env.state[0] * scale + screen_width / 2.0)  # MIDDLE OF CART
-
-
-def get_screen():
-    screen = env.render(mode='rgb_array').transpose((2, 0, 1))
-    screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
-    screen = torch.from_numpy(screen)
-    return resize(screen).unsqueeze(0).to(device)
-
-
-#
-#
-# # A simple test
-# renderer = RenderThread(env)
-# renderer.start()
-#
-
-
-
-env.reset()
-# renderer.begin_render()
-screen = get_screen()
-
-# plt.figure()
-# plt.imshow(screen.cpu().squeeze(0).permute(
-#     1, 2, 0).numpy().squeeze(), cmap='gray')
-# plt.title('Example extracted screen')
-# plt.show()
-
-_, _, screen_height, screen_width = screen.shape
-
+        return x
 
 class History():
 
@@ -321,8 +200,6 @@ class History():
         plt.pause(0.00001)
 
 
-
-
 def optimize_model(step):
     if len(memory) < config.start_from:
         return 0
@@ -337,15 +214,19 @@ def optimize_model(step):
     # A tensor cannot be None, so strip out terminal states
     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                             batch.next_state)), device=device, dtype=torch.bool)
-    non_final_next_states = torch.cat(
-        [s for s in batch.next_state if s is not None])
-    state_batch = torch.cat(batch.state)
+
+    non_final_next_states = torch.stack([s for s in batch.next_state if s is not None], dim=0)
+
+    state_batch = torch.stack(batch.state, dim=0)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
 
     # Bellman's Equation
     with torch.no_grad():
-        online_Q = policy_net(non_final_next_states)
+        # weights: size = (out_features, in_features)
+        # input matmul weight
+        # result : size = (batch_size, ..., out_features)
+        online_Q = policy_net(non_final_next_states)  # arg: size: (batch_size, ...,  in_features)
         target_Q = target_net(non_final_next_states)
         next_Q = torch.zeros(config.BATCH_SIZE, device=device)
         next_Q[non_final_mask] = target_Q.gather(
@@ -380,7 +261,12 @@ def select_action(state, eps):
     if sample > eps:
         policy_net.eval()
         with torch.no_grad():
-            return policy_net(state).max(1)[1].view(1, 1)
+            # print(policy_net(state))
+            # print(policy_net(state).max(0))  # arg of max sets which dim must be reduced
+            # print(policy_net(state).max(0)[1].view(1, 1))  # [1] for selecting 2nd arg returned by max: indexes
+            # print()
+            return policy_net(state).max(0)[1].view(1, 1)
+        # return A
     else:
         return torch.tensor([[random.randrange(2)]], device=device, dtype=torch.long)
 
@@ -396,7 +282,6 @@ def training():
     global policy_net
     global optimizer
 
-    print(device)
 
     # Init network
     if resume:
@@ -408,10 +293,8 @@ def training():
 
         checkpoint = torch.load(save_name + '.pt')
 
-        policy_net = DQN(screen_height, screen_width,
-                         config.conv_layer_settings).to(device)
-        target_net = DQN(screen_height, screen_width,
-                         config.conv_layer_settings).to(device)
+        policy_net = DQN().to(device)
+        target_net = DQN().to(device)
         policy_net.load_state_dict(checkpoint['policy_net'])
         target_net.load_state_dict(checkpoint['target_net'])
 
@@ -422,12 +305,9 @@ def training():
         history = History()
         config = Config()
 
-        policy_net = DQN(screen_height, screen_width,
-                         config.conv_layer_settings, config.dueling).to(device)
-        target_net = DQN(screen_height, screen_width,
-                         config.conv_layer_settings, config.dueling).to(device)
-        init_params(policy_net)
-        target_net.load_state_dict(policy_net.state_dict())
+        policy_net = DQN().to(device)
+        print(policy_net)
+        target_net = deepcopy(policy_net)
         optimizer = config.optim_method(policy_net.parameters(), lr=config.lr)
 
     memory = ReplayMemory(config.memory_size)
@@ -436,30 +316,14 @@ def training():
     for i_episode in range(config.n_episode):
         history.total_episode += 1
 
-        print(i_episode)
+        obs, done, losses, ep_len, rew = env.reset(), False, 0, 0, 0
 
-        env.reset()
-
-        init_screen = get_screen()
-        screens = deque([init_screen] * 3, 3)
-        state = torch.cat(list(screens), dim=1)
+        state = torch.tensor(obs, device=device, dtype=torch.float32)
         avg_loss = 0
 
         if (i_episode > 0):
-            # print(history.means[-1])
+            print('episode: ', i_episode, " ", history.means[-1])
             av_lenghs.append(history.means[-1])
-
-        if i_episode == 160 and history.means[-1] < 15:
-            print("bad run 0")
-            break
-
-        if i_episode == 250 and history.means[-1] < 40:
-            print("bad run")
-            break
-
-        if i_episode == 600 and history.means[-1] < 80:
-            print("bad run 2")
-            break
 
         for t in count():
 
@@ -472,8 +336,6 @@ def training():
             if keyboard.is_pressed('s'):
                 print("Stopped")
                 print()
-                print("Press y to resume execution with the next run")
-                keyboard.wait("y")
                 return
 
             history.step_count += 1
@@ -482,11 +344,8 @@ def training():
             eps = epsilon_by_frame(history.total_episode)
             action = select_action(state, eps)
             history.step_eps.append(eps)
-            _, reward, done, _ = env.step(action.item())
+            obs_next, reward, done, _ = env.step(action.item())
             reward = torch.tensor([reward], device=device)
-
-            # Render the step in another thread
-            # renderer.begin_render()
 
             # Do optimization in main thread
             loss = optimize_model(history.step_count)
@@ -494,8 +353,8 @@ def training():
             history.step_loss.append(loss)
 
             # Render the next_state and remember it
-            screens.append(get_screen())
-            next_state = torch.cat(list(screens), dim=1) if not done else None
+            # append screens
+            next_state = torch.tensor(obs_next, device=device, dtype=torch.float32) if not done else None
             memory.push(Transition(state, action, reward, next_state, done))
 
             # Move to the next state
@@ -531,49 +390,20 @@ for i in av_lenghs:
 
 file.close()
 
-# torch.save({
-#     'policy_net': policy_net.state_dict(),
-#     'target_net': target_net.state_dict(),
-#     'optimizer': optimizer.state_dict()
-# }, save_name + '.pt')
-
-# with open(save_name + '.pickle', 'wb') as f:
-#     pickle.dump({'history': history, 'config': config},
-#                 f, pickle.HIGHEST_PROTOCOL)
-#
-# with open(save_name + '.pickle', 'rb') as f:
-#     data = pickle.load(f)
-#     history = data['history']
-#     config = data['config']
-
-# checkpoint = torch.load(save_name + '.pt')
-# policy_net = DQN(screen_height, screen_width,
-#                  config.conv_layer_settings, config.dueling).to(device)
-# policy_net.load_state_dict(checkpoint['policy_net'])
-# policy_net.eval()
-
 
 def testing():
-    for i in range(5):
-        env.reset()
+    for i in range(100):
+        obs, done, rew = env.reset(), False, 0
 
-        init_screen = get_screen()
-        screens = deque([init_screen] * 3, 3)
-        state = torch.cat(list(screens), dim=1)
         total_reward = 0
 
         while True:
             # Select and perform an action
-            action = select_action(state, 0)
-            _, reward, done, _ = env.step(action.item())
+            action = select_action(obs, 0)
+            obs, reward, done, info = env.step(action.item())
             total_reward += reward
-
-            # Render the next_state and remember it
-            screens.append(get_screen())
-            next_state = torch.cat(list(screens), dim=1) if not done else None
-
-            # Move to the next state
-            state = next_state
+            time.sleep(0.001)
+            env.render()
 
             if done:
                 print('total reward:', total_reward)

@@ -36,6 +36,7 @@ class DQN_Agent:
         self.network_sync_counter = 0
         self.gamma = torch.tensor(0.95).float().cuda()
         self.experience_replay = deque(maxlen=exp_replay_size)
+        print(self.q_net)
         return
 
     def build_nn(self, layer_sizes):
@@ -123,11 +124,11 @@ for i in range(exp_replay_size):
 # Main training loop
 losses_list, reward_list, episode_len_list, epsilon_list = [], [], [], []
 index = 128
-episodes = 10000
+episodes = 8000
 epsilon = 1
 
 for i in range(episodes):
-    print(i)
+
     obs, done, losses, ep_len, rew = env.reset(), False, 0, 0, 0
     while done != True:
         ep_len += 1
@@ -150,7 +151,10 @@ for i in range(episodes):
     losses_list.append(losses / ep_len), reward_list.append(rew), episode_len_list.append(ep_len), epsilon_list.append(
         epsilon)
 
+    print(i, " ", rew)
+
 print("Training done")
+# 6100 - 6300
 
 env = gym.make('CartPole-v0')
 # env = gym.wrappers.Monitor(env, "record_dir")
