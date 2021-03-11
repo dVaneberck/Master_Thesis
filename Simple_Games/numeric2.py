@@ -32,7 +32,8 @@ resize = T.Compose([T.ToPILImage(),
                     T.Grayscale(),
                     T.ToTensor()])
 
-env = gym.make('CartPole-v0').unwrapped
+# env = gym.make('CartPole-v0').unwrapped
+env = gym.make('CartPole-v0')
 input_dim = env.observation_space.shape[0]
 output_dim = env.action_space.n
 hidden_dim = 64
@@ -49,19 +50,20 @@ class Config():
         self.epsilon_start = 1.0
         self.epsilon_final = 0.01
         self.epsilon_decay = 10
-        self.TARGET_UPDATE = 200
+        self.TARGET_UPDATE = 200  # over steps
         self.BATCH_SIZE = 256
         self.start_from = 512
         self.GAMMA = 0.95 #1
-        self.dueling = True
-        self.plot_every = 5
-        self.lr = 3e-5
+        # self.dueling = True
+        self.plot_every = 50
+        self.lr = 2e-4
         self.optim_method = optim.Adam
         self.memory_size = 10000
 
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(device)
 
 Transition = namedtuple(
     'Transition', ['state', 'action', 'reward', 'next_state', 'terminal'])
@@ -325,6 +327,9 @@ def training():
             print('episode: ', i_episode, " ", history.means[-1])
             av_lenghs.append(history.means[-1])
 
+            if history.means[-1] == 199.0:
+                break
+
         for t in count():
 
             if keyboard.is_pressed('p'):
@@ -367,7 +372,7 @@ def training():
 
 av_lenghs = []
 
-for run in range(7):
+for run in range(1):
     print()
     print("run nb: ", run)
     av_lenghs.append(-1)
@@ -392,15 +397,18 @@ file.close()
 
 
 def testing():
+    env = gym.make('CartPole-v0').unwrapped
     for i in range(100):
         obs, done, rew = env.reset(), False, 0
+        state = torch.tensor(obs, device=device, dtype=torch.float32)
 
         total_reward = 0
 
         while True:
             # Select and perform an action
-            action = select_action(obs, 0)
+            action = select_action(state, 0)
             obs, reward, done, info = env.step(action.item())
+            state = torch.tensor(obs, device=device, dtype=torch.float32)
             total_reward += reward
             time.sleep(0.001)
             env.render()
