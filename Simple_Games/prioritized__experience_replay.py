@@ -25,10 +25,10 @@ class PrioritizedExperienceReplay:
         priority_total = self.buffer.tree[0]
         priority_range = priority_total / batch_size
 
-        upper_nodes = len(self.buffer.tree) - self.capacity
-        priorities = self.buffer.tree[upper_nodes:upper_nodes+self.elements_buffer]
-        probabilities = priorities / priority_total
-        weight_max = (probabilities.min() * self.elements_buffer) ** - self.beta
+        # upper_nodes = len(self.buffer.tree) - self.capacity
+        # priorities = self.buffer.tree[upper_nodes:upper_nodes+self.elements_buffer]
+        # probabilities = priorities / priority_total
+        # weight_max = (probabilities.min() * self.elements_buffer) ** - self.beta
 
         indexes = np.empty(batch_size, dtype=np.int32)
 
@@ -37,21 +37,20 @@ class PrioritizedExperienceReplay:
             indexes[i], _, data = self.buffer.get(value)
             batch.append(data)
 
-        probabilities_total = self.buffer.tree / priority_total
-        weights = ((self.elements_buffer * probabilities_total[indexes]) ** (-self.beta)) / weight_max
-        self.beta_update()
+        # probabilities_total = self.buffer.tree / priority_total
+        # weights = ((self.elements_buffer * probabilities_total[indexes]) ** (-self.beta)) / weight_max
+        # self.beta_update()
 
-        return batch, indexes, weights
+        return batch, indexes
 
     def update_priorities(self, indexes, priorities_difference):
-        priorities_difference = 0.1 if priorities_difference == 0 else priorities_difference
-        priorities_updated = np.power(priorities_difference, self.alpha)
-        for index, priority in zip(indexes, priorities_updated):
-            self.buffer.update(index, priority)
+        # priorities_updated = np.power(priorities_difference, self.alpha)
+        for index, priority in zip(indexes, priorities_difference):
+            self.buffer.update(index, (priority + 1e-5)**self.alpha)
 
-    def beta_update(self, descent=1000):
-        self.frame += 1
-        self.beta = min(1.0, self.old_beta + self.frame * (1.0 - self.old_beta) / descent)
+    # def beta_update(self, descent=1000):
+    #     self.frame += 1
+    #     self.beta = min(1.0, self.old_beta + self.frame * (1.0 - self.old_beta) / descent)
 
     def __len__(self):
         return len(self.buffer.tree[self.capacity:])

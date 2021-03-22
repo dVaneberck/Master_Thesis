@@ -16,9 +16,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torchvision.transforms as T
-import prioritized__experience_replay as PER
 import cv2
 import copy
+
+from prioritized__experience_replay import *
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -60,6 +62,7 @@ class Agent:
         self.action_size = self.env.action_space.n
         self.EPISODES = 1000
         self.memory = deque(maxlen=2000)
+        self.per_memory = PrioritizedExperienceReplay(2000)
 
         self.gamma = 0.95  # discount rate
         self.epsilon = 1.0  # exploration rate
@@ -77,6 +80,7 @@ class Agent:
 
         self.ddqn = True
         self.epsilon_greedy = True
+        self.PER_use = True
 
     def remember(self, state, action, reward, next_state, done):
         # state = torch.tensor(state)
@@ -85,7 +89,10 @@ class Agent:
         reward = torch.tensor([reward])
         done = torch.tensor([done])
 
-        self.memory.append((state, next_state, action, reward, done))
+        if self.PER_use:
+            self.per_memory.push((state, next_state, action, reward, done))
+        else:
+            self.memory.append((state, next_state, action, reward, done))
 
     def act(self, state, decay_step):
         if self.epsilon_greedy:
@@ -106,10 +113,12 @@ class Agent:
             return torch.argmax(self.model(state, model='online')).item()
 
     def replay(self):
-        if len(self.memory) < self.batch_size:
-            return
-        # Randomly sample minibatch from the memory
-        minibatch = random.sample(self.memory, self.batch_size)
+        if self.PER_use:
+            minibatch, tree_idx = self.per_memory.sample(self.batch_size)
+        else:
+            if len(self.memory) < self.batch_size:
+                return
+            minibatch = random.sample(self.memory, self.batch_size)
 
         state, next_state, action, reward, done = map(torch.stack, zip(*minibatch))
 
@@ -142,6 +151,12 @@ class Agent:
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
 
         loss = self.loss_fn(online, td)
+
+        if self.PER_use:
+            # indices = np.arange(self.batch_size, dtype=np.int32)
+            absolute_errors = (online - next_Q).abs()
+            # Update priority
+            self.per_memory.update_priorities(tree_idx, absolute_errors)
 
         # Optimize the model
         self.optimizer.zero_grad()
@@ -213,7 +228,8 @@ class Agent:
                 state = next_state
                 i += 1
                 if done:
-                    print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
+                    # print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
+                    print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
                 self.replay()
             if e % self.target_sync == 0:
                 self.update_target()
