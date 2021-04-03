@@ -2,6 +2,8 @@ import math
 import random
 
 import gym as gym
+from gym.spaces import Box
+from gym.wrappers import FrameStack
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -16,27 +18,110 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torchvision.transforms as T
-import cv2
+# import cv2
 import copy
+import datetime
 
 from prioritized__experience_replay import *
 
+# NES Emulator for OpenAI Gym
+from nes_py.wrappers import JoypadSpace
+
+# Super Mario environment for OpenAI Gym
+import gym_super_mario_bros
+
+import argparse
+from pathlib import Path
+import time
+from PIL import Image
+
+from Logger import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+class SkipFrame(gym.Wrapper):
+    def __init__(self, env, skip):
+        """Return only every `skip`-th frame"""
+        super().__init__(env)
+        self._skip = skip
+
+    def step(self, action):
+        """Repeat action, and sum reward"""
+        total_reward = 0.0
+        done = False
+        for i in range(self._skip):
+            # Accumulate reward and repeat the same action
+            obs, reward, done, info = self.env.step(action)
+            total_reward += reward
+            if done:
+                break
+        return obs, total_reward, done, info
+
+
+class GrayScaleObservation(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        obs_shape = self.observation_space.shape[:2]
+        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
+
+    def permute_orientation(self, observation):
+        # permute [H, W, C] array to [C, H, W] tensor
+        observation = np.transpose(observation, (2, 0, 1))
+        observation = torch.tensor(observation.copy(), dtype=torch.float, device=device)
+        return observation
+
+    def observation(self, observation):
+        observation = self.permute_orientation(observation)
+        transform = T.Grayscale()
+        observation = transform(observation)
+        return observation
+
+
+class ResizeObservation(gym.ObservationWrapper):
+    def __init__(self, env, shape):
+        super().__init__(env)
+        if isinstance(shape, int):
+            self.shape = (shape, shape)
+        else:
+            self.shape = tuple(shape)
+
+        obs_shape = self.shape + self.observation_space.shape[2:]
+        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
+
+    def observation(self, observation):
+        transforms = T.Compose(
+            [T.Resize(self.shape), T.Normalize(0, 255)]
+        )
+        observation = transforms(observation).squeeze(0)
+        return observation
+
 
 
 class Model(nn.Module):
 
     def __init__(self, input_shape, action_space):
         super(Model, self).__init__()
+        # self.online = nn.Sequential(
+        #     nn.Linear(input_shape, 512),
+        #     nn.ReLU(),
+        #     nn.Linear(512, 256),
+        #     nn.ReLU(),
+        #     nn.Linear(256, 64),
+        #     nn.ReLU(),
+        #     nn.Linear(64, action_space),
+        # )
         self.online = nn.Sequential(
-            nn.Linear(input_shape, 512),
+            nn.Conv2d(in_channels=input_shape, out_channels=32, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.Linear(512, 256),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Linear(256, 64),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
             nn.ReLU(),
-            nn.Linear(64, action_space),
+            nn.Flatten(),
+            nn.Linear(3136, 512),
+            nn.ReLU(),
+            nn.Linear(512, action_space),
         )
 
         self.target = copy.deepcopy(self.online)
@@ -55,37 +140,50 @@ class Model(nn.Module):
 class Agent:
 
     def __init__(self):
-        self.env = gym.make('CartPole-v1')
-        self.env.seed(42)
+        # self.env = gym.make('CartPole-v1')
+        # self.env = malmoenv.make()
+        # self.env.seed(42)
+        self.env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
+        self.env = JoypadSpace(self.env, [["right"], ["right", "A"]])
+        self.env.reset()
+        self.env = SkipFrame(self.env, skip=4)
+        self.env = GrayScaleObservation(self.env)
+        self.env = ResizeObservation(self.env, shape=84)
+        self.env = FrameStack(self.env, num_stack=4)
 
-        self.state_size = self.env.observation_space.shape[0]
-        self.action_size = self.env.action_space.n
-        self.EPISODES = 1000
+        self.state_size = self.env.observation_space
+        self.action_size = self.env.action_space
+        self.EPISODES = 10000000
         self.memory = deque(maxlen=2000)
-        self.per_memory = PrioritizedExperienceReplay(2000)
+        self.per_memory = PrioritizedExperienceReplay(10000)
 
         self.gamma = 0.95  # discount rate
         self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.001
         self.epsilon_decay = 0.0005
+        self.current_step = 0
 
         self.batch_size = 32
         self.train_start = 1000
         self.target_sync = 20
 
-        self.model = Model(input_shape=self.state_size, action_space=self.action_size).float()
+        self.model = Model(input_shape=4, action_space=self.action_size.n).float()
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
-        self.loss_fn = torch.nn.SmoothL1Loss()
+        self.loss_fn = torch.nn.SmoothL1Loss().to(device=device)
 
         self.ddqn = True
         self.epsilon_greedy = True
         self.PER_use = True
 
+        save_dir = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        save_dir.mkdir(parents=True)
+        self.logger = MetricLogger(save_dir)
+
     def remember(self, state, action, reward, next_state, done):
-        action = torch.tensor([action])
-        reward = torch.tensor([reward])
-        done = torch.tensor([done])
+        action = torch.tensor([action], device=device)
+        reward = torch.tensor([reward], device=device)
+        done = torch.tensor([done], device=device)
 
         if self.PER_use:
             self.per_memory.push((state, next_state, action, reward, done))
@@ -103,14 +201,19 @@ class Agent:
 
         if explore_probability > np.random.rand():
             # Make a random action (exploration)
-            return random.randrange(self.action_size)
+            self.current_step += 1
+            return random.randrange(self.action_size.n)
         else:
             # Get action from Q-network (exploitation)
             # Estimate the Qs values state
             # Take the biggest Q value (= the best action)
-            return torch.argmax(self.model(state, model='online')).item()
+            state = state.__array__()
+            state = torch.tensor(state, device=device)
+            state = state.unsqueeze(0)
+            self.current_step += 1
+            return torch.argmax(self.model(state, model='online'), axis=1).item()
 
-    def replay(self):
+    def replay(self, reward_log):
         if self.PER_use:
             minibatch, tree_idx = self.per_memory.sample(self.batch_size)
         else:
@@ -161,79 +264,46 @@ class Agent:
         loss.backward()
         self.optimizer.step()
 
+        test = reward_log
+        self.logger.log_step(reward=test, loss=loss.item(), q=online.mean().item())
+
     def update_target(self):
         if self.ddqn:
             self.model.target.load_state_dict(self.model.online.state_dict())
 
-    def moving_average(self, x, w):
-        return np.convolve(x, np.ones(w), 'valid') / w
-
-    def plot_res(self, values, title=''):
-        ''' Plot the reward curve and histogram of results over time.'''
-        # Update the window after each episode
-        clear_output(wait=True)
-
-        # Define the figure
-        f, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 5))
-        f.suptitle(title)
-        ax[0].plot(values, label='score per run')
-        ax[0].axhline(195, c='red', ls='--', label='goal')
-        ax[0].set_xlabel('Episodes')
-        ax[0].set_ylabel('Reward')
-        x = range(len(values))
-        # Calculate the trend
-
-        if len(x) > 15:
-            ax[0].plot(x[14:], self.moving_average(values, 15), label='15 moving average')
-        try:
-            z = np.polyfit(x, values, 1)
-            p = np.poly1d(z)
-            ax[0].plot(x, p(x), "--", label='trend')
-
-        except:
-            print('')
-        ax[0].legend()
-
-        # Plot the histogram of results
-        ax[1].hist(values[-50:])
-        ax[1].axvline(195, c='red', label='goal')
-        ax[1].set_xlabel('Scores per Last 50 Episodes')
-        ax[1].set_ylabel('Frequency')
-        ax[1].legend()
-        plt.show()
-
     def run(self):
-        final = []
         decay_step = 0
         for e in range(self.EPISODES):
             state = self.env.reset()
-            state = torch.tensor(state, dtype=torch.float)
+            state = state.__array__()
+            state = torch.tensor(state, dtype=torch.float, device=device)
             done = False
             i = 0
             total = 0
             while not done:
-                self.env.render()
+                # self.env.render()
                 decay_step += 1
                 action = self.act(state, decay_step)
                 next_state, reward, done, _ = self.env.step(action)
-                next_state = torch.tensor(next_state, dtype=torch.float)
+                next_state = next_state.__array__()
+                next_state = torch.tensor(next_state, dtype=torch.float, device=device)
                 total += reward
-                if not done or i == self.env._max_episode_steps - 1:
-                    reward = reward
-                else:
-                    reward = -100
+                # if not done or i == self.env._max_episode_steps - 1:
+                #     reward = reward
+                # else:
+                #     reward = -100
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 i += 1
                 if done:
                     # print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
                     print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
-                self.replay()
+                self.replay(reward)
             if e % self.target_sync == 0:
                 self.update_target()
-            # if e % 10 == 0:
-                # final.append(total)
-                # self.plot_res(final)
+            self.logger.log_episode()
+            if e % 100 == 0:
+                self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
 
 
 if __name__ == "__main__":

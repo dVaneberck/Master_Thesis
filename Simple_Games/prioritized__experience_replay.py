@@ -30,12 +30,17 @@ class PrioritizedExperienceReplay:
         # probabilities = priorities / priority_total
         # weight_max = (probabilities.min() * self.elements_buffer) ** - self.beta
 
-        indexes = np.empty(batch_size, dtype=np.int32)
+        # indexes = np.empty(batch_size, dtype=np.int32)
+        indexes = np.empty((batch_size,), dtype=np.int32)
 
         for i in range(batch_size):
             value = np.random.uniform(priority_range*i, priority_range*(i+1))
             indexes[i], _, data = self.buffer.get(value)
-            batch.append(data)
+            while data == 0:
+                value = np.random.uniform(priority_range * i, priority_range * (i + 1))
+                indexes[i], _, data = self.buffer.get(value)
+            else:
+                batch.append(data)
 
         # probabilities_total = self.buffer.tree / priority_total
         # weights = ((self.elements_buffer * probabilities_total[indexes]) ** (-self.beta)) / weight_max
