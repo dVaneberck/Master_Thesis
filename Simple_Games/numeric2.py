@@ -53,7 +53,7 @@ class Config():
         self.TARGET_UPDATE = 200  # over steps
         self.BATCH_SIZE = 256
         self.start_from = 512
-        self.GAMMA = 0.95 #1
+        self.GAMMA = 0.9 #1
         # self.dueling = True
         self.plot_every = 50
         self.lr = 2e-4

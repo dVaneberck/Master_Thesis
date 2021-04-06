@@ -282,6 +282,7 @@ class History():
         self.plot_every = plot_every
 
     def update(self, t, episode_loss):
+
         self.episode_durations.append(t + 1)
         self.episode_loss.append(episode_loss / (t + 1))
         self.indexes.append(self.total_episode)
