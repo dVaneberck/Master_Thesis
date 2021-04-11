@@ -68,7 +68,7 @@ class GrayScaleObservation(gym.ObservationWrapper):
     def permute_orientation(self, observation):
         # permute [H, W, C] array to [C, H, W] tensor
         observation = np.transpose(observation, (2, 0, 1))
-        observation = torch.tensor(observation.copy(), dtype=torch.float, device=device)
+        observation = torch.tensor(observation.copy(), dtype=torch.float)
         return observation
 
     def observation(self, observation):
@@ -97,20 +97,10 @@ class ResizeObservation(gym.ObservationWrapper):
         return observation
 
 
-
 class Model(nn.Module):
 
     def __init__(self, input_shape, action_space):
         super(Model, self).__init__()
-        # self.online = nn.Sequential(
-        #     nn.Linear(input_shape, 512),
-        #     nn.ReLU(),
-        #     nn.Linear(512, 256),
-        #     nn.ReLU(),
-        #     nn.Linear(256, 64),
-        #     nn.ReLU(),
-        #     nn.Linear(64, action_space),
-        # )
         self.online = nn.Sequential(
             nn.Conv2d(in_channels=input_shape, out_channels=32, kernel_size=8, stride=4),
             nn.ReLU(),
@@ -141,11 +131,11 @@ class Agent:
 
     def __init__(self):
         # self.env = gym.make('CartPole-v1')
-        # self.env = malmoenv.make()
         # self.env.seed(42)
         self.env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
         self.env = JoypadSpace(self.env, [["right"], ["right", "A"]])
         self.env.reset()
+        _, _, _, _ = self.env.step(action=0)
         self.env = SkipFrame(self.env, skip=4)
         self.env = GrayScaleObservation(self.env)
         self.env = ResizeObservation(self.env, shape=84)
@@ -168,6 +158,7 @@ class Agent:
         self.target_sync = 20
 
         self.model = Model(input_shape=4, action_space=self.action_size.n).float()
+        self.model.to(device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
         self.loss_fn = torch.nn.SmoothL1Loss().to(device=device)
@@ -181,9 +172,16 @@ class Agent:
         self.logger = MetricLogger(save_dir)
 
     def remember(self, state, action, reward, next_state, done):
-        action = torch.tensor([action], device=device)
-        reward = torch.tensor([reward], device=device)
-        done = torch.tensor([done], device=device)
+        if device.type == 'cuda':
+            state = torch.tensor(state).cuda()
+            next_state = torch.tensor(next_state).cuda()
+            action = torch.tensor([action]).cuda()
+            reward = torch.tensor([reward]).cuda()
+            done = torch.tensor([done]).cuda()
+        else:
+            action = torch.tensor([action])
+            reward = torch.tensor([reward])
+            done = torch.tensor([done])
 
         if self.PER_use:
             self.per_memory.push((state, next_state, action, reward, done))
@@ -208,7 +206,10 @@ class Agent:
             # Estimate the Qs values state
             # Take the biggest Q value (= the best action)
             state = state.__array__()
-            state = torch.tensor(state, device=device)
+            if device.type == "cuda":
+                state = torch.tensor(state).cuda()
+            else:
+                state = torch.tensor(state)
             state = state.unsqueeze(0)
             self.current_step += 1
             return torch.argmax(self.model(state, model='online'), axis=1).item()
@@ -276,7 +277,7 @@ class Agent:
         for e in range(self.EPISODES):
             state = self.env.reset()
             state = state.__array__()
-            state = torch.tensor(state, dtype=torch.float, device=device)
+            state = torch.tensor(state, dtype=torch.float)
             done = False
             i = 0
             total = 0
@@ -284,28 +285,59 @@ class Agent:
                 # self.env.render()
                 decay_step += 1
                 action = self.act(state, decay_step)
-                next_state, reward, done, _ = self.env.step(action)
+                next_state, reward, done, info = self.env.step(action)
                 next_state = next_state.__array__()
-                next_state = torch.tensor(next_state, dtype=torch.float, device=device)
+                next_state = torch.tensor(next_state, dtype=torch.float)
                 total += reward
-                # if not done or i == self.env._max_episode_steps - 1:
-                #     reward = reward
-                # else:
-                #     reward = -100
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 i += 1
-                if done:
-                    # print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
-                    print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
                 self.replay(reward)
+                if done:
+                    print("episode: {}/{}, iteration: {}, reward: {}".format(e, self.EPISODES, i, reward))
+                if info["flag_get"]:
+                    print('Flag Get !')
             if e % self.target_sync == 0:
                 self.update_target()
             self.logger.log_episode()
             if e % 100 == 0:
                 self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
+                torch.save(self.model.state_dict(), f"models/models_{e}.pt")
+                print("Model saved")
+
+    def test(self, cuda=False):
+        agent.model.load_state_dict(torch.load('models/models_6700.pt'))
+        for e in range(self.EPISODES):
+            state = self.env.reset()
+            state = state.__array__()
+            if cuda:
+                state = torch.tensor(state, dtype=torch.float).cuda()
+            else:
+                state = torch.tensor(state, dtype=torch.float)
+            done = False
+            i = 0
+            while not done:
+                self.env.render()
+                state = state.unsqueeze(0)
+                action = torch.argmax(self.model(state, model='online'), axis=1).item()
+                next_state, _, done, _ = self.env.step(action)
+                next_state = next_state.__array__()
+                if cuda:
+                    next_state = torch.tensor(next_state, dtype=torch.float).cuda()
+                else:
+                    next_state = torch.tensor(next_state, dtype=torch.float)
+                state = next_state
+                i += 1
+                if done:
+                    print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
+                    break
 
 
 if __name__ == "__main__":
+    # print(device, 'is used')
+    # agent = Agent()
+    # agent.run()
+
+    device = torch.device("cpu")
     agent = Agent()
-    agent.run()
+    agent.test()
