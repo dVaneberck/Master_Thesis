@@ -4,6 +4,10 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 
+"""
+This part of the code com from the pytorch tutorial : https://pytorch.org/tutorials/intermediate/mario_rl_tutorial.html#logging
+"""
+
 
 class MetricLogger:
     def __init__(self, save_dir):

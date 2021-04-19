@@ -21,6 +21,9 @@ import copy
 
 from prioritized__experience_replay import *
 
+from pathlib import Path
+from Logger import *
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -60,7 +63,7 @@ class Agent:
 
         self.state_size = self.env.observation_space.shape[0]
         self.action_size = self.env.action_space.n
-        self.EPISODES = 1000
+        self.EPISODES = 1000000
         self.memory = deque(maxlen=2000)
         self.per_memory = PrioritizedExperienceReplay(2000)
 
@@ -68,6 +71,7 @@ class Agent:
         self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.001
         self.epsilon_decay = 0.0005
+        self.current_step = 0
 
         self.batch_size = 32
         self.train_start = 1000
@@ -81,6 +85,10 @@ class Agent:
         self.ddqn = True
         self.epsilon_greedy = True
         self.PER_use = True
+
+        save_dir = Path("checkpoints_cartpole") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        save_dir.mkdir(parents=True)
+        self.logger = MetricLogger(save_dir)
 
     def remember(self, state, action, reward, next_state, done):
         action = torch.tensor([action])
@@ -101,6 +109,7 @@ class Agent:
                 self.epsilon *= self.epsilon_decay
             explore_probability = self.epsilon
 
+        self.current_step += 1
         if explore_probability > np.random.rand():
             # Make a random action (exploration)
             return random.randrange(self.action_size)
@@ -110,7 +119,7 @@ class Agent:
             # Take the biggest Q value (= the best action)
             return torch.argmax(self.model(state, model='online')).item()
 
-    def replay(self):
+    def replay(self, reward_log):
         if self.PER_use:
             minibatch, tree_idx = self.per_memory.sample(self.batch_size)
         else:
@@ -161,46 +170,12 @@ class Agent:
         loss.backward()
         self.optimizer.step()
 
+        test = reward_log
+        self.logger.log_step(reward=test, loss=loss.item(), q=online.mean().item())
+
     def update_target(self):
         if self.ddqn:
             self.model.target.load_state_dict(self.model.online.state_dict())
-
-    def moving_average(self, x, w):
-        return np.convolve(x, np.ones(w), 'valid') / w
-
-    def plot_res(self, values, title=''):
-        ''' Plot the reward curve and histogram of results over time.'''
-        # Update the window after each episode
-        clear_output(wait=True)
-
-        # Define the figure
-        f, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 5))
-        f.suptitle(title)
-        ax[0].plot(values, label='score per run')
-        ax[0].axhline(195, c='red', ls='--', label='goal')
-        ax[0].set_xlabel('Episodes')
-        ax[0].set_ylabel('Reward')
-        x = range(len(values))
-        # Calculate the trend
-
-        if len(x) > 15:
-            ax[0].plot(x[14:], self.moving_average(values, 15), label='15 moving average')
-        try:
-            z = np.polyfit(x, values, 1)
-            p = np.poly1d(z)
-            ax[0].plot(x, p(x), "--", label='trend')
-
-        except:
-            print('')
-        ax[0].legend()
-
-        # Plot the histogram of results
-        ax[1].hist(values[-50:])
-        ax[1].axvline(195, c='red', label='goal')
-        ax[1].set_xlabel('Scores per Last 50 Episodes')
-        ax[1].set_ylabel('Frequency')
-        ax[1].legend()
-        plt.show()
 
     def run(self):
         final = []
@@ -218,22 +193,21 @@ class Agent:
                 next_state, reward, done, _ = self.env.step(action)
                 next_state = torch.tensor(next_state, dtype=torch.float)
                 total += reward
-                if not done or i == self.env._max_episode_steps - 1:
-                    reward = reward
-                else:
-                    reward = -100
+                # if not done or i == self.env._max_episode_steps - 1:
+                #     reward = reward
+                # else:
+                #     reward = -100
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 i += 1
                 if done:
-                    # print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
                     print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
-                self.replay()
+                self.replay(reward)
+            self.logger.log_episode()
             if e % self.target_sync == 0:
                 self.update_target()
-            # if e % 10 == 0:
-                # final.append(total)
-                # self.plot_res(final)
+            if e % 10 == 0:
+                self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
 
 
 if __name__ == "__main__":
