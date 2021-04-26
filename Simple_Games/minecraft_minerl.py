@@ -313,7 +313,6 @@ class Agent:
             done = False
             i = 0
             total = 0
-            camera = 0.0
             while not done:
                 self.env.render()
                 decay_step += 1
@@ -321,17 +320,22 @@ class Agent:
                 action_basic = self.act(state, decay_step)
                 action = self.env.action_space.noop()
                 if action_basic == 2:
-                    camera = camera + 90.0 if camera < 180.0 else -180.0
+                    action['camera'] = [0, 2]  # turn camera 2 degrees right for this step
                 elif action_basic == 6:
                     action['place'] = 'dirt'
                 else:
                     action[enum_actions[action_basic]] = 1
-                action['camera'][1] = camera
 
                 next_state, reward, done, info = self.env.step(action)
+                self.env.render()
                 next_state = next_state.__array__()
                 next_state = torch.tensor(next_state, dtype=torch.float, device=device) # ?device?
                 total += reward
+
+                if action_basic == 2:
+                    a = next_state.cpu()[0,:,:]
+                    plt.imshow(next_state.cpu()[0,:,:], cmap='gray', vmin=0.0, vmax=1.0)
+                    plt.show()
 
                 self.remember(state, action_basic, reward, next_state, done)
                 state = next_state
