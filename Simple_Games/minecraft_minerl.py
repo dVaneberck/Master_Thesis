@@ -71,6 +71,8 @@ class GrayScaleObservation(gym.ObservationWrapper):
         return observation
 
     def observation(self, observation):
+        print("------------------------")
+        print("compass angle: ", observation["compassAngle"])
         observation = self.permute_orientation(observation["pov"])
         transform = T.Grayscale()
         observation = transform(observation)
@@ -174,7 +176,8 @@ class Agent:
 
         self.gamma = 0.95  # discount rate
         self.epsilon = 1.0  # exploration rate
-        self.epsilon_min = 0.001
+        # self.epsilon_min = 0.001
+        self.epsilon_min = 0.01
         self.epsilon_decay = 0.0005
         self.current_step = 0
 
@@ -319,9 +322,14 @@ class Agent:
                 self.env.render()
                 decay_step += 1
 
+                # enum_actions = {0: "back", 1: "forward", 2: "left", 3: "right", 4: "jump", 5: "sprint",
+                #                 6: "camera", 7: "camera2", 8: "jumpfront", 9: "sneak", 10: "place", 11: "attack"}
                 action_basic = self.act(state, decay_step)
                 action = self.env.action_space.noop()
-                if action_basic == 6:
+                if action_basic == 5:
+                    action['sprint'] = 1
+                    action['forward'] = 1
+                elif action_basic == 6:
                     action['camera'] = [0, 2]  # turn camera 2 degrees right for this step
                 elif action_basic == 7:
                     action['camera'] = [0, -2]
@@ -334,10 +342,16 @@ class Agent:
                     action[self.enum_actions[action_basic]] = 1
 
                 next_state, reward, done, info = self.env.step(action)
+
+
                 self.env.render()
                 next_state = next_state.__array__()
                 next_state = torch.tensor(next_state, dtype=torch.float, device=device) # ?device?
                 total += reward
+
+                print("total reward: ", total, ", reward: ", reward)
+                if info:
+                    print("info: ", info)
 
                 # if action_basic == 2:
                 #     a = next_state.cpu()[0,:,:]
@@ -349,7 +363,7 @@ class Agent:
                 i += 1
                 if done:
                     # print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
-                    print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
+                    print("episode: {}/{}, life time: {}".format(e, self.EPISODES, i))
                 self.replay(reward)
             if e % self.target_sync == 0:
                 self.update_target()
