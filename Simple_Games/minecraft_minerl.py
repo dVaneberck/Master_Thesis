@@ -156,8 +156,6 @@ class Agent:
         self.use_cuda = torch.cuda.is_available()
 
         self.env.observation_space = self.env.observation_space["pov"]
-        # self.env = MinecraftActions(self.env, [["forward"], ["back"], ["left"], ["right"], ["camera"]])
-        # self.env = MinecraftActions(self.env, [["forward"], ["back"], ["left"], ["right"]])
         # self.env.reset()
         self.env = SkipFrame(self.env, skip=4)
         self.env = GrayScaleObservation(self.env)
@@ -166,6 +164,10 @@ class Agent:
 
         self.state_size = self.env.observation_space
         self.action_size = self.env.action_space
+        self.enum_actions = {0: "back", 1: "forward",  2: "left", 3: "right", 4: "jump", 5: "sprint",
+                        6: "camera", 7: "camera2", 8: "jumpfront", 9: "sneak", 10: "place", 11: "attack"}
+        self.number_actions = len(self.enum_actions)-3
+
         self.EPISODES = 10000000
         self.memory = deque(maxlen=2000)
         self.per_memory = PrioritizedExperienceReplay(10000)
@@ -180,7 +182,8 @@ class Agent:
         self.train_start = 1000
         self.target_sync = 20
 
-        self.model = Model(input_shape=4, action_space=len(self.action_size.spaces)).float()
+        # self.model = Model(input_shape=4, action_space=len(self.action_size.spaces)).float()
+        self.model = Model(input_shape=4, action_space=self.number_actions).float()
         self.model = self.model.to(device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
@@ -223,7 +226,7 @@ class Agent:
         if explore_probability > np.random.rand():
             # Make a random action (exploration)
             self.current_step += 1
-            return random.randrange(len(self.action_size.spaces))
+            return random.randrange(self.number_actions)
         else:
             # Get action from Q-network (exploitation)
             # Estimate the Qs values state
@@ -301,7 +304,6 @@ class Agent:
     def run(self):
         use_cuda = torch.cuda.is_available()
         print(f"Using CUDA: {use_cuda}")
-        enum_actions = {0: "attack", 1: "back", 2: "camera", 3: "forward", 4: "jump", 5: "left", 6: "place", 7: "right", 8: "sneak", 9: "sprint"}
 
 
         decay_step = 0
@@ -319,12 +321,17 @@ class Agent:
 
                 action_basic = self.act(state, decay_step)
                 action = self.env.action_space.noop()
-                if action_basic == 2:
+                if action_basic == 6:
                     action['camera'] = [0, 2]  # turn camera 2 degrees right for this step
-                elif action_basic == 6:
+                elif action_basic == 7:
+                    action['camera'] = [0, -2]
+                elif action_basic == 8:
+                    action['jump'] = 1
+                    action['forward'] = 1
+                elif action_basic == 10:
                     action['place'] = 'dirt'
                 else:
-                    action[enum_actions[action_basic]] = 1
+                    action[self.enum_actions[action_basic]] = 1
 
                 next_state, reward, done, info = self.env.step(action)
                 self.env.render()
@@ -332,10 +339,10 @@ class Agent:
                 next_state = torch.tensor(next_state, dtype=torch.float, device=device) # ?device?
                 total += reward
 
-                if action_basic == 2:
-                    a = next_state.cpu()[0,:,:]
-                    plt.imshow(next_state.cpu()[0,:,:], cmap='gray', vmin=0.0, vmax=1.0)
-                    plt.show()
+                # if action_basic == 2:
+                #     a = next_state.cpu()[0,:,:]
+                #     plt.imshow(next_state.cpu()[0,:,:], cmap='gray', vmin=0.0, vmax=1.0)
+                #     plt.show()
 
                 self.remember(state, action_basic, reward, next_state, done)
                 state = next_state
