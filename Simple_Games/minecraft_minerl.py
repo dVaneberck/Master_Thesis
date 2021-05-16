@@ -362,7 +362,7 @@ class Agent:
                 state = next_state
                 i += 1
                 if done:
-                    # print("episode: {}/{}, score: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
+                    # print("episode: {}/{}, life time: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
                     print("episode: {}/{}, life time: {}".format(e, self.EPISODES, i))
                 self.replay(reward)
             if e % self.target_sync == 0:
