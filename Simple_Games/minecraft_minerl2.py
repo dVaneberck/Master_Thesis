@@ -19,7 +19,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torchvision.transforms as T
-# import cv2
 import copy
 import datetime
 
@@ -57,53 +56,14 @@ class SkipFrame(gym.Wrapper):
         return obs, total_reward, done, info
 
 
-class GrayScaleObservation(gym.ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        obs_shape = self.observation_space.shape[:2]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
-        # self.observation_space.shape = obs_shape
-
-    def permute_orientation(self, observation):
-        # permute [H, W, C] array to [C, H, W] tensor
-        observation = np.transpose(observation, (2, 0, 1))
-        observation = torch.tensor(observation.copy(), dtype=torch.float)
-        return observation
-
-    def observation(self, observation):
-        observation = self.permute_orientation(observation)
-        transform = T.Grayscale()
-        observation = transform(observation)
-        return observation
-
-
-class ResizeObservation(gym.ObservationWrapper):
-    def __init__(self, env, shape):
-        super().__init__(env)
-        if isinstance(shape, int):
-            self.shape = (shape, shape)
-        else:
-            self.shape = tuple(shape)
-
-        obs_shape = self.shape + self.observation_space.shape[2:]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
-
-    def observation(self, observation):
-        transforms = T.Compose(
-            [T.Resize(self.shape), T.Normalize(0, 255)]
-        )
-        observation = transforms(observation).squeeze(0)
-        return observation
-
-
 class ChooseObservation(gym.ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
-        self.observation_space = self.observation_space["pov"]
+        self.observation_space = self.observation_space["compassAngle"]
 
     def observation(self, observation):
         print(observation["compassAngle"])  #debug
-        return observation["pov"]
+        return observation["compassAngle"]
 
 
 class Model(nn.Module):
@@ -111,16 +71,11 @@ class Model(nn.Module):
     def __init__(self, input_shape, action_space):
         super(Model, self).__init__()
         self.online = nn.Sequential(
-            nn.Conv2d(in_channels=input_shape, out_channels=32, kernel_size=8, stride=4),
+            nn.Linear(input_shape, 128),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Linear(512, action_space),
+            nn.Linear(64, action_space),
         )
 
         self.target = copy.deepcopy(self.online)
@@ -142,12 +97,8 @@ class Agent:
         self.env = gym.make('MineRLNavigateDense-v0')
         self.use_cuda = torch.cuda.is_available()
 
-        # self.env.observation_space = self.env.observation_space["pov"]
-        # self.env.reset()
         self.env = SkipFrame(self.env, skip=4)
         self.env = ChooseObservation(self.env)
-        self.env = GrayScaleObservation(self.env)
-        self.env = ResizeObservation(self.env, shape=self.env.observation_space.shape[0])
         self.env = FrameStack(self.env, num_stack=4)
 
         self.state_size = self.env.observation_space
@@ -155,7 +106,7 @@ class Agent:
         self.enum_actions = {0: "camera", 1: "camera2", 2: "jumpfront", 3: "forward", 4: "jump", 5: "back",
                              6: "left", 7: "right", 8: "sprint", 9: "sneak", 10: "place", 11: "attack"}
         # self.number_actions = len(self.enum_actions)
-        self.number_actions = 8
+        self.number_actions = 3
 
         self.EPISODES = 10000000
         self.memory = deque(maxlen=2000)
@@ -171,8 +122,7 @@ class Agent:
         self.train_start = 1000
         self.target_sync = 20
 
-        # self.model = Model(input_shape=4, action_space=len(self.action_size.spaces)).float()
-        self.model = Model(input_shape=4, action_space=self.number_actions).float()
+        self.model = Model(input_shape=4, action_space=self.number_actions).float()  # 4 because 4 states in time
         self.model = self.model.to(device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
@@ -349,6 +299,7 @@ class Agent:
                     save_file.close()
 
                 self.replay(reward)
+
             if e % self.target_sync == 0:
                 self.update_target()
             self.logger.log_episode()
