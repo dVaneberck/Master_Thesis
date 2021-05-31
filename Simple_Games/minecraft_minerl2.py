@@ -97,9 +97,10 @@ class Agent:
         self.env = gym.make('MineRLNavigateDense-v0')
         self.use_cuda = torch.cuda.is_available()
 
-        self.env = SkipFrame(self.env, skip=4)
+        self.nFrames = 3
+        self.env = SkipFrame(self.env, skip=3)
         self.env = ChooseObservation(self.env)
-        self.env = FrameStack(self.env, num_stack=4)
+        self.env = FrameStack(self.env, num_stack=self.nFrames)
 
         self.state_size = self.env.observation_space
         self.action_size = self.env.action_space
@@ -109,7 +110,7 @@ class Agent:
         self.number_actions = 3
 
         self.EPISODES = 10000000
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=10000)
         self.per_memory = PrioritizedExperienceReplay(10000)
 
         self.gamma = 0.95  # discount rate
@@ -122,7 +123,7 @@ class Agent:
         self.train_start = 1000
         self.target_sync = 20
 
-        self.model = Model(input_shape=4, action_space=self.number_actions).float()  # 4 because 4 states in time
+        self.model = Model(input_shape=self.nFrames, action_space=self.number_actions).float()  # 4 because 4 states in time
         self.model = self.model.to(device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
@@ -130,7 +131,7 @@ class Agent:
 
         self.ddqn = True
         self.epsilon_greedy = True
-        self.PER_use = True
+        self.PER_use = False
 
         save_dir = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
@@ -241,9 +242,11 @@ class Agent:
         print(f"Using CUDA: {use_cuda}")
 
         save_file = open("rewards.txt", "w").close()
+        compass_file = open("compass.txt", "w").close()
 
         decay_step = 0
         for e in range(self.EPISODES):
+            compass_array = []
 
             state = self.env.reset()
             state = state.__array__()
@@ -255,9 +258,12 @@ class Agent:
             while not done:
                 self.env.render()
                 decay_step += 1
+                compass = state.data[0].item()
+                compass_array.append(compass)
 
                 # enum_actions = {0: "camera", 1: "camera2", 2: "jumpfront", 3: "forward", 4: "jump", 5: "back",
                 #                 6: "left", 7: "right", 8: "sprint", 9: "sneak", 10: "place", 11: "attack"}
+
                 action_basic = self.act(state, decay_step)
                 action = self.env.action_space.noop()
                 if action_basic == 2:
@@ -294,9 +300,14 @@ class Agent:
                 if done:
                     # print("episode: {}/{}, life time: {}, e: {:.2}".format(e, self.EPISODES, i, self.epsilon))
                     print("episode: {}/{}, life time: {}".format(e, self.EPISODES, i))
+
                     save_file = open("rewards.txt", "a")
                     save_file.write(str(e) + " " + str(total) + '\n')
                     save_file.close()
+
+                    compass_file = open("compass.txt", "a")
+                    compass_file.write(str(compass_array) + '\n')
+                    compass_file.close()
 
                 self.replay(reward)
 

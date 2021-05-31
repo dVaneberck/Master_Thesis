@@ -93,7 +93,7 @@ class Agent:
 
         self.env.observation_space = self.env.observation_space["pov"]
         # self.env.reset()
-        self.env = SkipFrame(self.env, skip=4)
+        self.env = SkipFrame(self.env, skip=3)
         # self.env = GrayScaleObservation(self.env)
         # self.env = ResizeObservation(self.env, shape=self.env.observation_space.shape[0])
         # self.env = FrameStack(self.env, num_stack=4)
@@ -139,8 +139,6 @@ class Agent:
                 action = self.env.action_space.noop()
 
 
-
-
                 if -5 < compass < 5:
                     action['forward'] = 1
                 elif compass < -5:
@@ -157,7 +155,7 @@ class Agent:
                 action['jump'] = 1
 
                 if i == 0:
-                    action['camera'] = [8, 0]
+                    action['camera'] = [9, 0]
 
                 if DEBUG != 0:
                     action = self.env.action_space.noop()
