@@ -110,7 +110,7 @@ class Agent:
         self.number_actions = 3
 
         self.EPISODES = 10000000
-        self.memory = deque(maxlen=10000)
+        self.memory = deque(maxlen=2000)
         self.per_memory = PrioritizedExperienceReplay(10000)
 
         self.gamma = 0.95  # discount rate
@@ -131,7 +131,7 @@ class Agent:
 
         self.ddqn = True
         self.epsilon_greedy = True
-        self.PER_use = False
+        self.PER_use = True
 
         save_dir = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
@@ -241,8 +241,8 @@ class Agent:
         use_cuda = torch.cuda.is_available()
         print(f"Using CUDA: {use_cuda}")
 
-        save_file = open("rewards.txt", "w").close()
-        compass_file = open("compass.txt", "w").close()
+        open("rewards.txt", "w").close()
+        open("compass.txt", "w").close()
 
         decay_step = 0
         for e in range(self.EPISODES):
@@ -316,7 +316,6 @@ class Agent:
             self.logger.log_episode()
             if e % 100 == 0:
                 self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
-        save_file.close()
 
 
 if __name__ == "__main__":

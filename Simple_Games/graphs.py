@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import ast
 
-compass_file = open("compasses/compass_noPer.txt", "r")
+compass_file = open("compasses/compass_conv_per.txt", "r")
 lines = compass_file.readlines()
 
 

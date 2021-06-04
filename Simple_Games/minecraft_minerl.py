@@ -37,6 +37,8 @@ from Logger import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+compass_array = []
+
 
 class SkipFrame(gym.Wrapper):
     def __init__(self, env, skip):
@@ -103,6 +105,7 @@ class ChooseObservation(gym.ObservationWrapper):
 
     def observation(self, observation):
         print(observation["compassAngle"])  #debug
+        compass_array.append(observation["compassAngle"].item())
         return observation["pov"]
 
 
@@ -142,20 +145,19 @@ class Agent:
         self.env = gym.make('MineRLNavigateDense-v0')
         self.use_cuda = torch.cuda.is_available()
 
-        # self.env.observation_space = self.env.observation_space["pov"]
-        # self.env.reset()
-        self.env = SkipFrame(self.env, skip=4)
+        self.nFrames = 3
+        self.env = SkipFrame(self.env, skip=3)
         self.env = ChooseObservation(self.env)
         self.env = GrayScaleObservation(self.env)
         self.env = ResizeObservation(self.env, shape=self.env.observation_space.shape[0])
-        self.env = FrameStack(self.env, num_stack=4)
+        self.env = FrameStack(self.env, num_stack=self.nFrames)
 
         self.state_size = self.env.observation_space
         self.action_size = self.env.action_space
         self.enum_actions = {0: "camera", 1: "camera2", 2: "jumpfront", 3: "forward", 4: "jump", 5: "back",
                              6: "left", 7: "right", 8: "sprint", 9: "sneak", 10: "place", 11: "attack"}
         # self.number_actions = len(self.enum_actions)
-        self.number_actions = 8
+        self.number_actions = 3
 
         self.EPISODES = 10000000
         self.memory = deque(maxlen=2000)
@@ -171,8 +173,7 @@ class Agent:
         self.train_start = 1000
         self.target_sync = 20
 
-        # self.model = Model(input_shape=4, action_space=len(self.action_size.spaces)).float()
-        self.model = Model(input_shape=4, action_space=self.number_actions).float()
+        self.model = Model(input_shape=self.nFrames, action_space=self.number_actions).float()
         self.model = self.model.to(device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
@@ -290,10 +291,14 @@ class Agent:
         use_cuda = torch.cuda.is_available()
         print(f"Using CUDA: {use_cuda}")
 
-        save_file = open("rewards.txt", "w").close()
+        global compass_array
+
+        open("rewards.txt", "w").close()
+        open("compass.txt", "w").close()
 
         decay_step = 0
         for e in range(self.EPISODES):
+            compass_array = []
 
             state = self.env.reset()
             state = state.__array__()
@@ -348,13 +353,16 @@ class Agent:
                     save_file.write(str(e) + " " + str(total) + '\n')
                     save_file.close()
 
+                    compass_file = open("compass.txt", "a")
+                    compass_file.write(str(compass_array) + '\n')
+                    compass_file.close()
+
                 self.replay(reward)
             if e % self.target_sync == 0:
                 self.update_target()
             self.logger.log_episode()
             if e % 100 == 0:
                 self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
-        save_file.close()
 
 
 if __name__ == "__main__":
