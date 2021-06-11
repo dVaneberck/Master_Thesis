@@ -70,11 +70,17 @@ class Model(nn.Module):
 
     def __init__(self, input_shape, action_space):
         super(Model, self).__init__()
+        # self.online = nn.Sequential(
+        #     nn.Linear(input_shape, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 64),
+        #     nn.ReLU(),
+        #     nn.Linear(64, action_space),
+        # )
+
         self.online = nn.Sequential(
-            nn.Linear(input_shape, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
+            nn.Linear(input_shape, 64),
+            nn.ReLU(), # sigmoid ?
             nn.Linear(64, action_space),
         )
 
@@ -97,7 +103,7 @@ class Agent:
         self.env = gym.make('MineRLNavigateDense-v0')
         self.use_cuda = torch.cuda.is_available()
 
-        self.nFrames = 3
+        self.nFrames = 2
         self.env = SkipFrame(self.env, skip=3)
         self.env = ChooseObservation(self.env)
         self.env = FrameStack(self.env, num_stack=self.nFrames)
@@ -200,11 +206,11 @@ class Agent:
         ]
 
         if self.ddqn:
-            target_next = self.model(next_state, model='target')
+            target_next = self.model(next_state, model='online')
             best_action = torch.argmax(target_next, axis=1)
 
             next_Q = self.model(next_state, model='target')[
-                np.arange(0, self.batch_size), best_action
+                ab, best_action
             ]
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
 
@@ -213,7 +219,7 @@ class Agent:
             best_action = torch.argmax(target_next, axis=1)
 
             next_Q = self.model(state, model='online')[
-                np.arange(0, self.batch_size), best_action
+                ab, best_action
             ]
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
 
