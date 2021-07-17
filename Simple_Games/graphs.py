@@ -2,10 +2,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import ast
 
-compass_file = open("compasses/compass_small_dumb.txt", "r")
+compass_file = open("compass.txt", "r")
 lines = compass_file.readlines()
 
-rewards_file = open("rewards/rewards_small_dumb.txt")
+rewards_file = open("rewards.txt")
 r_lines = rewards_file.readlines()
 x = []
 y = []
@@ -15,17 +15,17 @@ for l in r_lines:
     y.append(float(b))
 
 graph = []
-for k in range(0, 1):
-    graph.extend(ast.literal_eval(lines[k]))
-plt.figure(figsize=(5, 5))
-plt.hist(graph)
-plt.xlabel('angle (°)')
-plt.show()
+# for k in range(0, 5):
+#     graph.extend(ast.literal_eval(lines[k]))
+# plt.figure(figsize=(5, 5))
+# plt.hist(graph)
+# plt.xlabel('angle (°)')
+# plt.show()
 
 i = 0
 graph = []
 for line in lines:
-    if i % 21 != 20:
+    if i % 50 != 49:
         graph.extend(ast.literal_eval(line))
     else:
         plt.figure(figsize=(5, 5))

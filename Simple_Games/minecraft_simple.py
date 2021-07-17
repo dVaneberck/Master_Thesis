@@ -114,6 +114,7 @@ class Agent:
         reward = 0
         for e in range(self.EPISODES):
 
+            self.env.seed(3)
             state = self.env.reset()
 
 

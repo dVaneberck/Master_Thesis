@@ -115,7 +115,7 @@ class Agent:
         # self.number_actions = len(self.enum_actions)
         self.number_actions = 3
 
-        self.EPISODES = 10000000
+        self.EPISODES = 400
         self.memory = deque(maxlen=2000)
         self.per_memory = PrioritizedExperienceReplay(10000)
 
@@ -127,9 +127,9 @@ class Agent:
 
         self.batch_size = 32
         self.train_start = 1000
-        self.target_sync = 20
+        self.target_sync = 2  # in episodes
 
-        self.model = Model(input_shape=self.nFrames, action_space=self.number_actions).float()  # 4 because 4 states in time
+        self.model = Model(input_shape=self.nFrames, action_space=self.number_actions).float()
         self.model = self.model.to(device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
@@ -199,17 +199,17 @@ class Agent:
         reward = reward.squeeze()
         done = done.squeeze()
 
-        online = self.model(state, model='online')
+        online = self.model(state, model='online')   # all Q-values predicted
         ab = np.arange(0, self.batch_size)
-        online = online[
+        online_Q = online[  # Q-value predicted for the chosen action
             ab, action
         ]
 
         if self.ddqn:
-            target_next = self.model(next_state, model='online')
-            best_action = torch.argmax(target_next, axis=1)
+            target_next = self.model(next_state, model='online')  # predicted Q-values for next state
+            best_action = torch.argmax(target_next, axis=1)  # best action according to target_next
 
-            next_Q = self.model(next_state, model='target')[
+            next_Q = self.model(next_state, model='target')[  # target Q-value for best action at next state
                 ab, best_action
             ]
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
@@ -223,11 +223,11 @@ class Agent:
             ]
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
 
-        loss = self.loss_fn(online, td)
+        loss = self.loss_fn(online_Q, td)
 
         if self.PER_use:
             # indices = np.arange(self.batch_size, dtype=np.int32)
-            absolute_errors = (online - next_Q).abs()
+            absolute_errors = (online_Q - next_Q).abs()
             # Update priority
             self.per_memory.update_priorities(tree_idx, absolute_errors)
 
@@ -237,7 +237,7 @@ class Agent:
         self.optimizer.step()
 
         test = reward_log
-        self.logger.log_step(reward=test, loss=loss.item(), q=online.mean().item())
+        self.logger.log_step(reward=test, loss=loss.item(), q=online_Q.mean().item())
 
     def update_target(self):
         if self.ddqn:
@@ -320,11 +320,12 @@ class Agent:
             if e % self.target_sync == 0:
                 self.update_target()
             self.logger.log_episode()
-            if e % 100 == 0:
-                self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
+            # if e % 100 == 0:
+            self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
 
 
 if __name__ == "__main__":
+    # test with seeds
     device = torch.device("cuda")
     agent = Agent()
     agent.run()

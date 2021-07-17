@@ -250,7 +250,7 @@ class Agent:
         ]
 
         if self.ddqn:
-            target_next = self.model(next_state, model='target')
+            target_next = self.model(next_state, model='online')
             best_action = torch.argmax(target_next, axis=1)
 
             next_Q = self.model(next_state, model='target')[
@@ -300,6 +300,7 @@ class Agent:
         for e in range(self.EPISODES):
             compass_array = []
 
+            self.env.seed(1)
             state = self.env.reset()
             state = state.__array__()
             state = torch.tensor(state, dtype=torch.float, device=device)  # ?device?
