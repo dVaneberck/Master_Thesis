@@ -15,6 +15,9 @@ import datetime
 import argparse
 from pathlib import Path
 import time
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 from prioritized__experience_replay import *
 from neural_net import *
@@ -24,7 +27,7 @@ from Logger import *
 class Agent:
     # abstract class
 
-    def __init__(self, network, nb_actions):
+    def __init__(self, network, n_features, nb_actions):
 
         self.use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,7 +40,6 @@ class Agent:
         self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.05
         self.epsilon_decay = 0.0005
-        self.current_step = 0
 
         self.batch_size = 32
         self.nFrames = 2
@@ -49,7 +51,7 @@ class Agent:
         self.PER_use = True
 
         # ! change neural net according to args.network
-        self.model = network(input_shape=self.nFrames, action_space=nb_actions).float()
+        self.model = network(input_shape=self.nFrames, action_space=nb_actions, n_features=n_features).float()
         self.model = self.model.to(self.device)
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
@@ -58,6 +60,12 @@ class Agent:
         save_dir = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
         self.logger = MetricLogger(save_dir)
+
+    def reset(self):
+        pass
+
+    def act(self, state, decay_step):
+        pass
 
     def update_target(self):
         if self.ddqn:
@@ -80,9 +88,57 @@ class Agent:
         else:
             self.memory.append((state, next_state, action, reward, done))
 
-    def act(self, state, decay_step):
-        pass
-
     def update_net(self, reward_log):
-        pass
+        if self.PER_use:
+            minibatch, tree_idx = self.per_memory.sample(self.batch_size)
+        else:
+            if len(self.memory) < self.batch_size:
+                return
+            minibatch = random.sample(self.memory, self.batch_size)
+
+        state, next_state, action, reward, done = map(torch.stack, zip(*minibatch))
+
+        action = action.squeeze()
+        reward = reward.squeeze()
+        done = done.squeeze()
+
+        online = self.model(state, model='online')  # all Q-values predicted
+        ab = np.arange(0, self.batch_size)
+        online_Q = online[  # Q-value predicted for the chosen action
+            ab, action
+        ]
+
+        if self.ddqn:
+            target_next = self.model(next_state, model='online')  # predicted Q-values for next state
+            best_action = torch.argmax(target_next, axis=1)  # best action according to target_next
+
+            next_Q = self.model(next_state, model='target')[  # target Q-value for best action at next state
+                ab, best_action
+            ]
+            td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
+
+        else:
+            target_next = self.model(state, model='online')
+            best_action = torch.argmax(target_next, axis=1)
+
+            next_Q = self.model(state, model='online')[
+                ab, best_action
+            ]
+            td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
+
+        loss = self.loss_fn(online_Q, td)
+
+        if self.PER_use:
+            absolute_errors = (online_Q - next_Q).abs()
+            # Update priority
+            self.per_memory.update_priorities(tree_idx, absolute_errors)
+
+        # Optimize the model
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        test = reward_log
+        self.logger.log_step(reward=test, loss=loss.item(), q=online_Q.mean().item())
+
 

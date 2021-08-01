@@ -1,4 +1,3 @@
-import minerl
 import math
 import random
 import gym as gym
@@ -18,38 +17,42 @@ from pathlib import Path
 import time
 from PIL import Image
 
+# NES Emulator for OpenAI Gym
+from nes_py.wrappers import JoypadSpace
+
+# Super Mario environment for OpenAI Gym
+import gym_super_mario_bros
+
 from preprocessing import *
 from agent import *
 from Logger import *
 
 
-class MinecraftAgent(Agent):
+class MarioAgent(Agent):
     # Concrete class extending the functionality of Agent
 
-    def __init__(self, network, choose_obs):
-        self.enum_actions = {0: "camera", 1: "camera2", 2: "jumpfront", 3: "forward", 4: "jump", 5: "back",
-                             6: "left", 7: "right", 8: "sprint", 9: "sneak", 10: "place", 11: "attack"}
-
-        self.number_actions = 3
-        super(MinecraftAgent, self).__init__(network, 1024, self.number_actions)
-        self.env = gym.make('MineRLNavigateDense-v0')
-
-        self.env = SkipFrame(self.env, skip=3)
-        self.env = choose_obs(self.env)
-        if isinstance(self.model, ConvNet):
-            self.env = GrayScaleObservation(self.env)
-            self.env = ResizeObservation(self.env, shape=self.env.observation_space.shape[0])
-        self.env = FrameStack(self.env, num_stack=self.nFrames)
+    def __init__(self, network):
+        self.env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
 
         self.state_size = self.env.observation_space
-        self.action_size = self.env.action_space
+        self.number_actions = self.env.action_space
+        super(MarioAgent, self).__init__(network, 3136, self.number_actions)
 
-        save_dir = Path("checkpoints_minerl") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        self.nFrames = 4
+
+        self.env = JoypadSpace(self.env, [["right"], ["right", "A"]])
+        # self.env.reset()
+        # _, _, _, _ = self.env.step(action=0)
+        self.env = SkipFrame(self.env, skip=4)
+        self.env = GrayScaleObservation(self.env)
+        self.env = ResizeObservation(self.env, shape=84)
+        self.env = FrameStack(self.env, num_stack=self.nFrames)
+
+        save_dir = Path("checkpoints_mario") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
         self.logger = MetricLogger(save_dir)
 
     def reset(self):
-        self.env.seed(42)
         state = self.env.reset()
         state = state.__array__()
         return torch.tensor(state, dtype=torch.float, device=self.device)
@@ -65,7 +68,7 @@ class MinecraftAgent(Agent):
 
         if explore_probability > np.random.rand():
             # Make a random action (exploration)
-            action_basis = random.randrange(self.number_actions)
+            action = random.randrange(self.number_actions)
         else:
             # Get action from Q-network (exploitation)
             # Estimate the Qs values state
@@ -75,35 +78,13 @@ class MinecraftAgent(Agent):
             q_values = self.model(state, model='online')
             best_q, best_action = torch.max(q_values, dim=1)
 
-            action_basis = best_action.item()
-
-        # format the action for minerl:
-        action = self.env.action_space.noop()
-        if action_basis == 2:
-            action['jump'] = 1
-            action['forward'] = 1
-            print("jump forward")
-        elif action_basis == 0:
-            action['camera'] = [0, 1]  # turn camera 1 degrees right for this step
-            print("turn right")
-        elif action_basis == 1:
-            action['camera'] = [0, -1]
-            print("turn left")
-        elif action_basis == 8:
-            action['sprint'] = 1
-            action['forward'] = 1
-        elif action_basis == 10:
-            action['place'] = 'dirt'
-        else:
-            action[self.enum_actions[action_basis]] = 1
-
-        self.env.render()
+            action = best_action.item()
 
         next_state, reward, done, info = self.env.step(action)
         next_state = next_state.__array__()
         next_state = torch.tensor(next_state, dtype=torch.float, device=self.device)  # ?device?
 
-        return next_state, reward, done, info, action_basis
+        return next_state, reward, done, info, action
 
     def update_net(self, reward_log):
         if self.PER_use:
@@ -146,7 +127,6 @@ class MinecraftAgent(Agent):
         loss = self.loss_fn(online_Q, td)
 
         if self.PER_use:
-            # indices = np.arange(self.batch_size, dtype=np.int32)
             absolute_errors = (online_Q - next_Q).abs()
             # Update priority
             self.per_memory.update_priorities(tree_idx, absolute_errors)

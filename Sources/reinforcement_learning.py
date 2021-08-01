@@ -16,15 +16,15 @@ import datetime
 import argparse
 from pathlib import Path
 import time
+import sys
 
 from prioritized__experience_replay import *
 from neural_net import *
 from preprocessing import *
 from agent import *
 from minecraft_agent import *
+from cartpole_agent import *
 from Logger import *
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def train(agent):
@@ -32,70 +32,64 @@ def train(agent):
     open("rewards.txt", "w").close()
 
     decay_step = 0
-    for e in range(agent.EPISODES):
+    for ep in range(agent.EPISODES):
 
-        state = agent.env.reset()
-        state = state.__array__()
-        state = torch.tensor(state, dtype=torch.float, device=device)  # ?device?
+        state = agent.reset()
 
         done = False
-        i = 0
+        alive_step = 0
         total = 0
         while not done:
-            agent.env.render()
             decay_step += 1
+            alive_step += 1
 
             next_state, reward, done, info, action = agent.act(state, decay_step)
-
-            next_state = next_state.__array__()
-            next_state = torch.tensor(next_state, dtype=torch.float, device=device)  # ?device?
             total += reward
+            agent.store(state, action, reward, next_state, done)
+            agent.update_net(reward)
+
+            state = next_state
 
             print("total reward: ", total, ", reward: ", reward)
             if info:
                 print("info: ", info)
             print()
-
-            agent.store(state, action, reward, next_state, done)
-            state = next_state
-            i += 1
             if done:
-                print("episode: {}/{}, life time: {}".format(e, agent.EPISODES, i))
+                print("episode: {}/{}, life time: {}".format(ep, agent.EPISODES, alive_step))
 
                 save_file = open("rewards.txt", "a")
-                save_file.write(str(e) + " " + str(total) + '\n')
+                save_file.write(str(ep) + " " + str(total) + '\n')
                 save_file.close()
 
-            agent.update_net(reward)
-
-        if e % agent.target_sync == 0:
+        if ep % agent.target_sync == 0:
             agent.update_target()
         agent.logger.log_episode()
-        agent.logger.record(episode=e, epsilon=agent.epsilon, step=agent.current_step)
+        agent.logger.record(episode=ep, epsilon=agent.epsilon, step=decay_step)
 
 
 def main():
     # Decode program argument:
     parser = argparse.ArgumentParser(description='Run a reinforcement learning algorithm')
 
-    parser.add_argument("game_type", help=
-    "The type of game that should be learned. Can be either 'cartpole', 'mario' or 'minecraft'")
+    parser.add_argument("game_type",
+                    help="The type of game that should be learned. Can be either 'cartpole', 'mario' or 'minecraft'")
 
-    parser.add_argument("-network", type=int, help="Type of input. Either 1 for numerical, or 2 for convolutional")
+    parser.add_argument("-network", help="Type of input. Either SmallMLP, BigMLP or ConvNet")
 
     args = parser.parse_args()
 
-    net = None
-    choose_obs = None
-    if args.network == 1:
+    if args.network == 'SmallMLP':
         net = SmallMLP
         choose_obs = ChooseCompassObservation
-    elif args.network == 2:
+    elif args.network == 'BigMLP':
+        net = BigMLP
+        choose_obs = ChooseCompassObservation
+    elif args.network == 'ConvNet':
         net = ConvNet
         choose_obs = ChoosePovObservation
     else:
-        print("The type of network entered is not recognized")
-        exit(0)
+        print('The type of network entered is not recognized')
+        sys.exit()
 
     agent = None
     if args.game_type == "minecraft":
@@ -103,10 +97,10 @@ def main():
     elif args.game_type == "mario":
         pass
     elif args.game_type == "cartpole":
-        pass
+        agent = CartpoleAgent(net)
     else:
-        print("The type of game entered is not recognized")
-        exit(0)
+        print('The type of game entered is not recognized')
+        sys.exit()
 
     print(f"Using CUDA: {agent.use_cuda}")
     print("Using environment: " + str(agent.env.unwrapped))

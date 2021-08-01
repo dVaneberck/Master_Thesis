@@ -140,7 +140,7 @@ class Agent:
         ]
 
         if self.ddqn:
-            target_next = self.model(next_state, model='target')
+            target_next = self.model(next_state, model='online')
             best_action = torch.argmax(target_next, axis=1)
 
             next_Q = self.model(next_state, model='target')[
@@ -183,6 +183,7 @@ class Agent:
         for e in range(self.EPISODES):
             state = self.env.reset()
             state = torch.tensor(state, dtype=torch.float)
+
             done = False
             i = 0
             total = 0
@@ -193,10 +194,7 @@ class Agent:
                 next_state, reward, done, _ = self.env.step(action)
                 next_state = torch.tensor(next_state, dtype=torch.float)
                 total += reward
-                # if not done or i == self.env._max_episode_steps - 1:
-                #     reward = reward
-                # else:
-                #     reward = -100
+
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 i += 1

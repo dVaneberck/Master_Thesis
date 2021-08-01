@@ -1,11 +1,7 @@
 import gym
 from gym.spaces import Box
-from gym.wrappers import FrameStack
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
 import torchvision.transforms as T
 
 
@@ -26,6 +22,7 @@ class SkipFrame(gym.Wrapper):
             if done:
                 break
         return obs, total_reward, done, info
+
 
 class GrayScaleObservation(gym.ObservationWrapper):
     def __init__(self, env):
@@ -64,6 +61,7 @@ class ResizeObservation(gym.ObservationWrapper):
         )
         observation = transforms(observation).squeeze(0)
         return observation
+
 
 class ChooseCompassObservation(gym.ObservationWrapper):
     def __init__(self, env):
