@@ -23,6 +23,7 @@ from neural_net import *
 from preprocessing import *
 from agent import *
 from minecraft_agent import *
+from mario_agent import *
 from cartpole_agent import *
 from Logger import *
 
@@ -68,13 +69,23 @@ def train(agent):
 
 
 def main():
-    # Decode program argument:
+    # Decode program argument, and launch adequate agent accordingly :
     parser = argparse.ArgumentParser(description='Run a reinforcement learning algorithm')
 
     parser.add_argument("game_type",
                     help="The type of game that should be learned. Can be either 'cartpole', 'mario' or 'minecraft'")
 
-    parser.add_argument("-network", help="Type of input. Either SmallMLP, BigMLP or ConvNet")
+    parser.add_argument("-network", default="ConvNet",
+                    help="Type of input. Either SmallMLP, BigMLP or ConvNet")
+
+    parser.add_argument("-nEpisodes", type=int, default=500,
+                    help="How many episodes are used for the training")
+
+    parser.add_argument("-nFrames", type=int, default=4,
+                    help="Number of observations to stack together, as inputs")
+
+    parser.add_argument("-target_sync", type=int, default=2,
+                    help="Time before target network is synced with online network, in episodes")
 
     args = parser.parse_args()
 
@@ -91,11 +102,10 @@ def main():
         print('The type of network entered is not recognized')
         sys.exit()
 
-    agent = None
     if args.game_type == "minecraft":
         agent = MinecraftAgent(net, choose_obs)
     elif args.game_type == "mario":
-        pass
+        agent = MarioAgent(ConvNet)
     elif args.game_type == "cartpole":
         agent = CartpoleAgent(net)
     else:

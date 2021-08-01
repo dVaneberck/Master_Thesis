@@ -34,19 +34,16 @@ class MarioAgent(Agent):
     def __init__(self, network):
         self.env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
 
-        self.state_size = self.env.observation_space
-        self.number_actions = self.env.action_space
-        super(MarioAgent, self).__init__(network, 3136, self.number_actions)
-
-        self.nFrames = 4
-
         self.env = JoypadSpace(self.env, [["right"], ["right", "A"]])
         # self.env.reset()
         # _, _, _, _ = self.env.step(action=0)
         self.env = SkipFrame(self.env, skip=4)
         self.env = GrayScaleObservation(self.env)
         self.env = ResizeObservation(self.env, shape=84)
+        self.number_actions = self.env.action_space.n
+        super(MarioAgent, self).__init__(network, 3136, self.number_actions)
         self.env = FrameStack(self.env, num_stack=self.nFrames)
+        self.state_size = self.env.observation_space
 
         save_dir = Path("checkpoints_mario") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
@@ -79,6 +76,8 @@ class MarioAgent(Agent):
             best_q, best_action = torch.max(q_values, dim=1)
 
             action = best_action.item()
+
+        self.env.render()
 
         next_state, reward, done, info = self.env.step(action)
         next_state = next_state.__array__()
