@@ -31,13 +31,11 @@ from Logger import *
 class MarioAgent(Agent):
     # Concrete class extending the functionality of Agent
 
-    def __init__(self, network):
+    def __init__(self, network, config):
         self.env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0")
 
         self.env = JoypadSpace(self.env, [["right"], ["right", "A"]])
-        # self.env.reset()
-        # _, _, _, _ = self.env.step(action=0)
-        self.env = SkipFrame(self.env, skip=4)
+        self.env = SkipFrame(self.env, skip=config["skipFrames"])
         self.env = GrayScaleObservation(self.env)
         self.env = ResizeObservation(self.env, shape=84)
         self.number_actions = self.env.action_space.n
@@ -77,7 +75,8 @@ class MarioAgent(Agent):
 
             action = best_action.item()
 
-        self.env.render()
+        if self.render:
+            self.env.render()
 
         next_state, reward, done, info = self.env.step(action)
         next_state = next_state.__array__()

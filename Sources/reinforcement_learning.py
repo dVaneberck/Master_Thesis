@@ -17,6 +17,7 @@ import argparse
 from pathlib import Path
 import time
 import sys
+import yaml
 
 from prioritized__experience_replay import *
 from neural_net import *
@@ -72,48 +73,39 @@ def main():
     # Decode program argument, and launch adequate agent accordingly :
     parser = argparse.ArgumentParser(description='Run a reinforcement learning algorithm')
 
-    parser.add_argument("game_type",
-                    help="The type of game that should be learned. Can be either 'cartpole', 'mario' or 'minecraft'")
-
-    parser.add_argument("-network", default="ConvNet",
-                    help="Type of input. Either SmallMLP, BigMLP or ConvNet")
-
-    parser.add_argument("-nEpisodes", type=int, default=500,
-                    help="How many episodes are used for the training")
-
-    parser.add_argument("-nFrames", type=int, default=4,
-                    help="Number of observations to stack together, as inputs")
-
-    parser.add_argument("-target_sync", type=int, default=2,
-                    help="Time before target network is synced with online network, in episodes")
+    parser.add_argument("config_file", help="path of the configuration file that specify all parameters")
 
     args = parser.parse_args()
 
-    if args.network == 'SmallMLP':
+    with open(args.config_file) as file:
+        config = yaml.safe_load(file)
+
+    if config["network"] == 'SmallMLP':
         net = SmallMLP
         choose_obs = ChooseCompassObservation
-    elif args.network == 'BigMLP':
+    elif config["network"] == 'BigMLP':
         net = BigMLP
         choose_obs = ChooseCompassObservation
-    elif args.network == 'ConvNet':
+    elif config["network"] == 'ConvNet':
         net = ConvNet
         choose_obs = ChoosePovObservation
     else:
         print('The type of network entered is not recognized')
         sys.exit()
 
-    if args.game_type == "minecraft":
-        agent = MinecraftAgent(net, choose_obs)
-    elif args.game_type == "mario":
-        agent = MarioAgent(ConvNet)
-    elif args.game_type == "cartpole":
-        agent = CartpoleAgent(net)
+    if config["game"] == "minecraft":
+        agent = MinecraftAgent(net, config, choose_obs)
+    elif config["game"] == "mario":
+        agent = MarioAgent(ConvNet, config)
+    elif config["game"] == "cartpole":
+        agent = CartpoleAgent(net, config)
     else:
         print('The type of game entered is not recognized')
         sys.exit()
 
     print(f"Using CUDA: {agent.use_cuda}")
     print("Using environment: " + str(agent.env.unwrapped))
+    print("Using neural network: " + type(agent.model).__name__)
     print("\nTraining: ")
 
     # run main training loop:

@@ -27,30 +27,31 @@ from Logger import *
 class Agent:
     # abstract class
 
-    def __init__(self, network, n_features, nb_actions):
+    def __init__(self, network, config, n_features, nb_actions):
 
         self.use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.render = config["render"]
+        self.fix_seed = config["fix_seed"]
 
-        self.EPISODES = 400
-        self.memory = deque(maxlen=2000)
-        self.per_memory = PrioritizedExperienceReplay(10000)
+        self.EPISODES = config["nb_episodes"]
+        self.memory = deque(maxlen=config["mem_size"])
+        self.per_memory = PrioritizedExperienceReplay(config["mem_size"])
 
-        self.gamma = 0.95  # discount rate
-        self.epsilon = 1.0  # exploration rate
-        self.epsilon_min = 0.05
-        self.epsilon_decay = 0.0005
+        self.gamma = config["gamma"]  # discount rate
+        self.epsilon = config["epsilon_start"]  # exploration rate
+        self.epsilon_min = config["epsilon_min"]
+        self.epsilon_decay = config["epsilon_decay"]
 
-        self.batch_size = 32
-        self.nFrames = 2
+        self.batch_size = config["batch_size"]
+        self.nFrames = config["nFrames"]
         self.train_start = 1000
-        self.target_sync = 2  # in episodes
+        self.target_sync = config["target_sync"]  # in episodes
 
-        self.ddqn = True
-        self.epsilon_greedy = True
-        self.PER_use = True
+        self.ddqn = config["use_ddqn"]
+        self.epsilon_greedy = config["use_epsilon_greedy"]
+        self.PER_use = config["use_PER"]
 
-        # ! change neural net according to args.network
         self.model = network(input_shape=self.nFrames, action_space=nb_actions, n_features=n_features).float()
         self.model = self.model.to(self.device)
 

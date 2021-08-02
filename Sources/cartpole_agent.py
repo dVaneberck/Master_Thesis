@@ -25,9 +25,8 @@ from Logger import *
 class CartpoleAgent(Agent):
     # Concrete class extending the functionality of Agent
 
-    def __init__(self, network):
+    def __init__(self, network, config):
         self.env = gym.make('CartPole-v1')
-        self.env.seed(42)
 
         self.state_size = self.env.observation_space
         self.number_actions = self.env.action_space.n
@@ -63,6 +62,9 @@ class CartpoleAgent(Agent):
             best_q, best_action = torch.max(q_values, dim=1)
 
             action = best_action.item()
+
+        if self.render:
+            self.env.render()
 
         next_state, reward, done, info = self.env.step(action)
         next_state = torch.tensor(next_state, dtype=torch.float, device=self.device)  # ?device?

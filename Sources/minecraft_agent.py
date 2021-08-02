@@ -26,15 +26,15 @@ from Logger import *
 class MinecraftAgent(Agent):
     # Concrete class extending the functionality of Agent
 
-    def __init__(self, network, choose_obs):
+    def __init__(self, network, config, choose_obs):
         self.enum_actions = {0: "camera", 1: "camera2", 2: "jumpfront", 3: "forward", 4: "jump", 5: "back",
                              6: "left", 7: "right", 8: "sprint", 9: "sneak", 10: "place", 11: "attack"}
 
-        self.number_actions = 3
-        super(MinecraftAgent, self).__init__(network, 1024, self.number_actions)
+        self.number_actions = config["number_actions"]
+        super(MinecraftAgent, self).__init__(network, config, 1024, self.number_actions)
         self.env = gym.make('MineRLNavigateDense-v0')
 
-        self.env = SkipFrame(self.env, skip=3)
+        self.env = SkipFrame(self.env, skip=config["skipFrames"])
         self.env = choose_obs(self.env)
         if isinstance(self.model, ConvNet):
             self.env = GrayScaleObservation(self.env)
@@ -49,7 +49,8 @@ class MinecraftAgent(Agent):
         self.logger = MetricLogger(save_dir)
 
     def reset(self):
-        self.env.seed(42)
+        if self.fix_seed:
+            self.env.seed(42)
         state = self.env.reset()
         state = state.__array__()
         return torch.tensor(state, dtype=torch.float, device=self.device)
@@ -97,7 +98,8 @@ class MinecraftAgent(Agent):
         else:
             action[self.enum_actions[action_basis]] = 1
 
-        self.env.render()
+        if self.render:
+            self.env.render()
 
         next_state, reward, done, info = self.env.step(action)
         next_state = next_state.__array__()
