@@ -29,7 +29,6 @@ class GrayScaleObservation(gym.ObservationWrapper):
         super().__init__(env)
         obs_shape = self.observation_space.shape[:2]
         self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
-        # self.observation_space.shape = obs_shape
 
     def permute_orientation(self, observation):
         # permute [H, W, C] array to [C, H, W] tensor
@@ -64,20 +63,22 @@ class ResizeObservation(gym.ObservationWrapper):
 
 
 class ChooseCompassObservation(gym.ObservationWrapper):
-    def __init__(self, env):
+    def __init__(self, env, agent):
         super().__init__(env)
         self.observation_space = self.observation_space["compassAngle"]
+        self.agent = agent
 
     def observation(self, observation):
-        print(observation["compassAngle"])  #debug
+        self.agent.compass_array.append(observation["compassAngle"].item())
         return observation["compassAngle"]
 
 
 class ChoosePovObservation(gym.ObservationWrapper):
-    def __init__(self, env):
+    def __init__(self, env, agent):
         super().__init__(env)
         self.observation_space = self.observation_space["pov"]
+        self.agent = agent
 
     def observation(self, observation):
-        print(observation["compassAngle"])  #debug
+        self.agent.compass_array.append(observation["compassAngle"].item())
         return observation["pov"]

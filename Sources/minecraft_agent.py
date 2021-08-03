@@ -1,22 +1,6 @@
 import minerl
-import math
-import random
 import gym as gym
-from gym.spaces import Box
 from gym.wrappers import FrameStack
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-from collections import namedtuple, deque
-from itertools import count
-from IPython.core.display import clear_output
-from PIL import Image
-import torchvision.transforms as T
-import datetime
-import argparse
-from pathlib import Path
-import time
-from PIL import Image
 
 from preprocessing import *
 from agent import *
@@ -31,11 +15,13 @@ class MinecraftAgent(Agent):
                              6: "left", 7: "right", 8: "sprint", 9: "sneak", 10: "place", 11: "attack"}
 
         self.number_actions = config["number_actions"]
+        self.compass_array = []
+
         super(MinecraftAgent, self).__init__(network, config, 1024, self.number_actions)
         self.env = gym.make('MineRLNavigateDense-v0')
 
         self.env = SkipFrame(self.env, skip=config["skipFrames"])
-        self.env = choose_obs(self.env)
+        self.env = choose_obs(self.env, self)
         if isinstance(self.model, ConvNet):
             self.env = GrayScaleObservation(self.env)
             self.env = ResizeObservation(self.env, shape=self.env.observation_space.shape[0])
@@ -48,6 +34,10 @@ class MinecraftAgent(Agent):
         save_dir.mkdir(parents=True)
         self.logger = MetricLogger(save_dir)
 
+        # erase and create new compass file:
+        self.compass_file = config["compass_file"]
+        open(self.compass_file, "w").close()
+
     def reset(self):
         if self.fix_seed:
             self.env.seed(42)
@@ -57,14 +47,14 @@ class MinecraftAgent(Agent):
 
     def act(self, state, decay_step):
         if self.epsilon_greedy:
-            explore_probability = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(
+            self.explore_probability = self.epsilon_min + (self.epsilon_max - self.epsilon_min) * np.exp(
                 -self.epsilon_decay * decay_step)
         else:
-            if self.epsilon > self.epsilon_min and len(self.memory) > self.train_start:
-                self.epsilon *= self.epsilon_decay
-            explore_probability = self.epsilon
+            if self.epsilon_max > self.epsilon_min and len(self.memory) > self.train_start:
+                self.epsilon_max *= self.epsilon_decay
+            self.explore_probability = self.epsilon_max
 
-        if explore_probability > np.random.rand():
+        if self.explore_probability > np.random.rand():
             # Make a random action (exploration)
             action_basis = random.randrange(self.number_actions)
         else:
@@ -77,6 +67,9 @@ class MinecraftAgent(Agent):
             best_q, best_action = torch.max(q_values, dim=1)
 
             action_basis = best_action.item()
+
+        if self.more_info:
+            print(self.compass_array[-1])
 
         # format the action for minerl:
         action = self.env.action_space.noop()
@@ -105,58 +98,13 @@ class MinecraftAgent(Agent):
         next_state = next_state.__array__()
         next_state = torch.tensor(next_state, dtype=torch.float, device=self.device)  # ?device?
 
+        if done:
+            self.write_compass()
+
         return next_state, reward, done, info, action_basis
 
-    def update_net(self, reward_log):
-        if self.PER_use:
-            minibatch, tree_idx = self.per_memory.sample(self.batch_size)
-        else:
-            if len(self.memory) < self.batch_size:
-                return
-            minibatch = random.sample(self.memory, self.batch_size)
-
-        state, next_state, action, reward, done = map(torch.stack, zip(*minibatch))
-
-        action = action.squeeze()
-        reward = reward.squeeze()
-        done = done.squeeze()
-
-        online = self.model(state, model='online')   # all Q-values predicted
-        ab = np.arange(0, self.batch_size)
-        online_Q = online[  # Q-value predicted for the chosen action
-            ab, action
-        ]
-
-        if self.ddqn:
-            target_next = self.model(next_state, model='online')  # predicted Q-values for next state
-            best_action = torch.argmax(target_next, axis=1)  # best action according to target_next
-
-            next_Q = self.model(next_state, model='target')[  # target Q-value for best action at next state
-                ab, best_action
-            ]
-            td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
-
-        else:
-            target_next = self.model(state, model='online')
-            best_action = torch.argmax(target_next, axis=1)
-
-            next_Q = self.model(state, model='online')[
-                ab, best_action
-            ]
-            td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
-
-        loss = self.loss_fn(online_Q, td)
-
-        if self.PER_use:
-            # indices = np.arange(self.batch_size, dtype=np.int32)
-            absolute_errors = (online_Q - next_Q).abs()
-            # Update priority
-            self.per_memory.update_priorities(tree_idx, absolute_errors)
-
-        # Optimize the model
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        test = reward_log
-        self.logger.log_step(reward=test, loss=loss.item(), q=online_Q.mean().item())
+    def write_compass(self):
+        compass_file = open(self.compass_file, "a")
+        compass_file.write(str(self.compass_array) + '\n')
+        compass_file.close()
+        self.compass_array = []

@@ -1,40 +1,17 @@
-import minerl
-import math
-import random
 import gym as gym
-from gym.spaces import Box
-from gym.wrappers import FrameStack
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-from collections import namedtuple, deque
-from itertools import count
-from IPython.core.display import clear_output
-from PIL import Image
-import torchvision.transforms as T
-import datetime
 import argparse
-from pathlib import Path
-import time
 import sys
 import yaml
 
-from prioritized__experience_replay import *
-from neural_net import *
-from preprocessing import *
-from agent import *
 from minecraft_agent import *
 from mario_agent import *
 from cartpole_agent import *
-from Logger import *
 
 
 def train(agent):
 
-    open("rewards.txt", "w").close()
-
     decay_step = 0
-    for ep in range(agent.EPISODES):
+    for ep in range(agent.nEpisodes):
 
         state = agent.reset()
 
@@ -52,21 +29,19 @@ def train(agent):
 
             state = next_state
 
-            print("total reward: ", total, ", reward: ", reward)
-            if info:
-                print("info: ", info)
-            print()
+            if agent.more_info:
+                print("total reward: ", total, ", reward: ", reward)
+                if info:
+                    print("info: ", info)
+                print()
             if done:
-                print("episode: {}/{}, life time: {}".format(ep, agent.EPISODES, alive_step))
-
-                save_file = open("rewards.txt", "a")
-                save_file.write(str(ep) + " " + str(total) + '\n')
-                save_file.close()
+                print("episode: {}/{}, life time: {}".format(ep, agent.nEpisodes, alive_step))
+                agent.write_rewards(ep, total)
 
         if ep % agent.target_sync == 0:
             agent.update_target()
         agent.logger.log_episode()
-        agent.logger.record(episode=ep, epsilon=agent.epsilon, step=decay_step)
+        agent.logger.record(episode=ep, epsilon=agent.explore_probability, step=decay_step)
 
 
 def main():

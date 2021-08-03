@@ -1,22 +1,8 @@
-import minerl
-import math
 import random
 import gym as gym
-from gym.spaces import Box
-from gym.wrappers import FrameStack
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
 from collections import namedtuple, deque
-from itertools import count
-from IPython.core.display import clear_output
-import torchvision.transforms as T
 import datetime
-import argparse
 from pathlib import Path
-import time
-import torch
-import torch.nn as nn
 import torch.optim as optim
 
 from prioritized__experience_replay import *
@@ -32,16 +18,18 @@ class Agent:
         self.use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.render = config["render"]
+        self.more_info = config["more_info"]
         self.fix_seed = config["fix_seed"]
 
-        self.EPISODES = config["nb_episodes"]
+        self.nEpisodes = config["nb_episodes"]
         self.memory = deque(maxlen=config["mem_size"])
         self.per_memory = PrioritizedExperienceReplay(config["mem_size"])
 
         self.gamma = config["gamma"]  # discount rate
-        self.epsilon = config["epsilon_start"]  # exploration rate
+        self.epsilon_max = config["epsilon_start"]
         self.epsilon_min = config["epsilon_min"]
         self.epsilon_decay = config["epsilon_decay"]
+        self.explore_probability = self.epsilon_max
 
         self.batch_size = config["batch_size"]
         self.nFrames = config["nFrames"]
@@ -62,10 +50,16 @@ class Agent:
         save_dir.mkdir(parents=True)
         self.logger = MetricLogger(save_dir)
 
+        # erase and create new compass file:
+        self.rewards_file = config["rewards_file"]
+        open(self.rewards_file, "w").close()
+
     def reset(self):
+        # abstract method
         pass
 
     def act(self, state, decay_step):
+        # abstract method
         pass
 
     def update_target(self):
@@ -104,9 +98,9 @@ class Agent:
         done = done.squeeze()
 
         online = self.model(state, model='online')  # all Q-values predicted
-        ab = np.arange(0, self.batch_size)
+        indices = np.arange(0, self.batch_size)
         online_Q = online[  # Q-value predicted for the chosen action
-            ab, action
+            indices, action
         ]
 
         if self.ddqn:
@@ -114,7 +108,7 @@ class Agent:
             best_action = torch.argmax(target_next, axis=1)  # best action according to target_next
 
             next_Q = self.model(next_state, model='target')[  # target Q-value for best action at next state
-                ab, best_action
+                indices, best_action
             ]
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
 
@@ -123,7 +117,7 @@ class Agent:
             best_action = torch.argmax(target_next, axis=1)
 
             next_Q = self.model(state, model='online')[
-                ab, best_action
+                indices, best_action
             ]
             td = (reward + (1 - done.float()) * self.gamma * next_Q).float()
 
@@ -141,5 +135,11 @@ class Agent:
 
         test = reward_log
         self.logger.log_step(reward=test, loss=loss.item(), q=online_Q.mean().item())
+
+    def write_rewards(self, ep, total):
+        save_file = open(self.rewards_file, "a")
+        save_file.write(str(ep) + " " + str(total) + '\n')
+        save_file.close()
+
 
 

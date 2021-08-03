@@ -2,7 +2,9 @@
 game: minecraft
 network: ConvNet
 render: True
+more_info: True
 fix_seed: True
+rewards_file: rewards.txt
 
 #epsilon greedy policy settings:
 epsilon_start: 1.0
@@ -30,3 +32,4 @@ mem_size: 10000
 
 #minecraft specific:
 number_actions: 3
+compass_file: compass.txt
