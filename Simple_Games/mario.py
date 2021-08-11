@@ -165,9 +165,9 @@ class Agent:
 
         self.ddqn = True
         self.epsilon_greedy = True
-        self.PER_use = True
+        self.PER_use = False
 
-        save_dir = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        save_dir = Path("checkpoints_mario") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
         self.logger = MetricLogger(save_dir)
 
@@ -216,7 +216,7 @@ class Agent:
 
     def replay(self, reward_log):
         if self.PER_use:
-            minibatch, tree_idx = self.per_memory.sample(self.batch_size)
+            minibatch, tree_idx,_ = self.per_memory.sample(self.batch_size)
         else:
             if len(self.memory) < self.batch_size:
                 return
@@ -235,7 +235,7 @@ class Agent:
         ]
 
         if self.ddqn:
-            target_next = self.model(next_state, model='target')
+            target_next = self.model(next_state, model='online')
             best_action = torch.argmax(target_next, axis=1)
 
             next_Q = self.model(next_state, model='target')[
@@ -274,7 +274,10 @@ class Agent:
 
     def run(self):
         decay_step = 0
+        t0 = time.perf_counter()
         for e in range(self.EPISODES):
+            if (time.perf_counter() - t0) / 60 > 480:
+                break
             state = self.env.reset()
             state = state.__array__()
             state = torch.tensor(state, dtype=torch.float)
@@ -301,11 +304,15 @@ class Agent:
                 self.update_target()
             self.logger.log_episode()
             if e % 100 == 0:
+                self.logger.log_times((time.perf_counter() - t0) / 60)
                 self.logger.record(episode=e, epsilon=self.epsilon, step=self.current_step)
                 torch.save(self.model.state_dict(), f"models/models_{e}.pt")
                 print("Model saved")
 
     def test(self, cuda=False):
+
+
+
         agent.model.load_state_dict(torch.load('models/models_6700.pt'))
         for e in range(self.EPISODES):
             state = self.env.reset()
@@ -334,10 +341,10 @@ class Agent:
 
 
 if __name__ == "__main__":
-    # print(device, 'is used')
-    # agent = Agent()
-    # agent.run()
-
-    device = torch.device("cpu")
+    print(device, 'is used')
     agent = Agent()
-    agent.test()
+    agent.run()
+
+    # device = torch.device("cpu")
+    # agent = Agent()
+    # agent.test()

@@ -3,13 +3,13 @@ import numpy as np
 
 class PrioritizedExperienceReplay:
 
-    def __init__(self, capacity, alpha=0.6, beta=0.4):
+    def __init__(self, capacity, alpha=0.6, beta=0.4, beta_inc=0.001):
         self.alpha = alpha
         self.capacity = capacity
         self.buffer = SumTree(capacity)
         self.frame = 1
         self.beta = beta
-        self.old_beta = beta
+        self.beta_inc = beta_inc
         self.elements_buffer = 0
 
     def push(self, transition):
@@ -24,38 +24,28 @@ class PrioritizedExperienceReplay:
         batch = []
         priority_total = self.buffer.tree[0]
         priority_range = priority_total / batch_size
+        priority_bias = []
 
-        # upper_nodes = len(self.buffer.tree) - self.capacity
-        # priorities = self.buffer.tree[upper_nodes:upper_nodes+self.elements_buffer]
-        # probabilities = priorities / priority_total
-        # weight_max = (probabilities.min() * self.elements_buffer) ** - self.beta
-
-        # indexes = np.empty(batch_size, dtype=np.int32)
+        self.beta = np.min([1., self.beta + self.beta_inc])
         indexes = np.empty((batch_size,), dtype=np.int32)
 
         for i in range(batch_size):
             value = np.random.uniform(priority_range*i, priority_range*(i+1))
-            indexes[i], _, data = self.buffer.get(value)
+            indexes[i], tree_val, data = self.buffer.get(value)
             while data == 0:
                 value = np.random.uniform(priority_range * i, priority_range * (i + 1))
-                indexes[i], _, data = self.buffer.get(value)
+                indexes[i], tree_val, data = self.buffer.get(value)
             else:
+                priority_bias.append(tree_val)
                 batch.append(data)
 
-        # probabilities_total = self.buffer.tree / priority_total
-        # weights = ((self.elements_buffer * probabilities_total[indexes]) ** (-self.beta)) / weight_max
-        # self.beta_update()
-
-        return batch, indexes
+        bias_weigth = np.power(self.buffer.n_elements * (priority_bias / priority_total), -self.beta)
+        bias_weigth = bias_weigth / bias_weigth.max()
+        return batch, indexes, bias_weigth
 
     def update_priorities(self, indexes, priorities_difference):
-        # priorities_updated = np.power(priorities_difference, self.alpha)
         for index, priority in zip(indexes, priorities_difference):
             self.buffer.update(index, (priority + 1e-5)**self.alpha)
-
-    # def beta_update(self, descent=1000):
-    #     self.frame += 1
-    #     self.beta = min(1.0, self.old_beta + self.frame * (1.0 - self.old_beta) / descent)
 
     def __len__(self):
         return len(self.buffer.tree[self.capacity:])
@@ -73,6 +63,7 @@ class SumTree:
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
         self.data = np.zeros(capacity, dtype=object)
+        self.n_elements = 0
 
     def _propagate(self, idx, change):
         parent = (idx - 1) // 2
@@ -106,6 +97,9 @@ class SumTree:
         self.write += 1
         if self.write >= self.capacity:
             self.write = 0
+
+        if self.n_elements < self.capacity:
+            self.n_elements += 1
 
     def update(self, idx, p):
         change = p - self.tree[idx]

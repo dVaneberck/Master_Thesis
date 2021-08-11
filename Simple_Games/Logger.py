@@ -41,6 +41,8 @@ class MetricLogger:
         # Timing
         self.record_time = time.time()
 
+        self.log_record_times = []
+
     def log_step(self, reward, loss, q):
         self.curr_ep_reward += reward
         self.curr_ep_length += 1
@@ -64,6 +66,9 @@ class MetricLogger:
 
         self.init_episode()
 
+    def log_times(self, times):
+        self.log_record_times.append(times)
+
     def init_episode(self):
         self.curr_ep_reward = 0.0
         self.curr_ep_length = 0
@@ -71,7 +76,7 @@ class MetricLogger:
         self.curr_ep_q = 0.0
         self.curr_ep_loss_length = 0
 
-    def record(self, episode, epsilon, step):
+    def record(self, episode, epsilon, step, times=False):
         mean_ep_reward = np.round(np.mean(self.ep_rewards[-100:]), 3)
         mean_ep_length = np.round(np.mean(self.ep_lengths[-100:]), 3)
         mean_ep_loss = np.round(np.mean(self.ep_avg_losses[-100:]), 3)
@@ -106,6 +111,9 @@ class MetricLogger:
             )
 
         for metric in ["ep_rewards", "ep_lengths", "ep_avg_losses", "ep_avg_qs"]:
-            plt.plot(getattr(self, f"moving_avg_{metric}"))
+            if times:
+                plt.plot(self.log_record_times, getattr(self, f"moving_avg_{metric}"))
+            else:
+                plt.plot(getattr(self, f"moving_avg_{metric}"))
             plt.savefig(getattr(self, f"{metric}_plot"))
             plt.clf()

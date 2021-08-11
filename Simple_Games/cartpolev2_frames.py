@@ -2,6 +2,8 @@ import math
 import random
 
 import gym as gym
+from gym.wrappers import FrameStack
+from gym.spaces import Box
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -10,6 +12,7 @@ from itertools import count
 
 from IPython.core.display import clear_output
 from PIL import Image
+import torchvision.transforms as T
 
 import torch
 import torch.nn as nn
@@ -34,7 +37,14 @@ class Model(nn.Module):
     def __init__(self, input_shape, action_space):
         super(Model, self).__init__()
         self.online = nn.Sequential(
-            nn.Linear(input_shape, 512),
+            nn.Conv2d(in_channels=input_shape, out_channels=64, kernel_size=5, stride=3),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(10240, 512),
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -81,13 +91,13 @@ class Agent:
         self.model = Model(input_shape=self.state_size, action_space=self.action_size).float()
 
         self.optimizer = optim.RMSprop(params=self.model.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
-        self.loss_fn = torch.nn.SmoothL1Loss()
+        self.loss_fn = torch.nn.MSELoss()
 
         self.ddqn = True
-        self.epsilon_greedy = False
-        self.PER_use = False
+        self.epsilon_greedy = True
+        self.PER_use = True
 
-        save_dir = Path("checkpoints_cartpole_num") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        save_dir = Path("checkpoints_cartpole") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)
         self.logger = MetricLogger(save_dir)
 
@@ -118,11 +128,12 @@ class Agent:
             # Get action from Q-network (exploitation)
             # Estimate the Qs values state
             # Take the biggest Q value (= the best action)
-            return torch.argmax(self.model(state, model='online')).item()
+            state = state.unsqueeze(0)
+            return torch.argmax(self.model(state, model='online'), axis=1).item()
 
     def replay(self, reward_log):
         if self.PER_use:
-            minibatch, tree_idx, weight_bias = self.per_memory.sample(self.batch_size)
+            minibatch, tree_idx = self.per_memory.sample(self.batch_size)
         else:
             if len(self.memory) < self.batch_size:
                 return
@@ -161,7 +172,7 @@ class Agent:
         loss = self.loss_fn(online, td)
 
         if self.PER_use:
-            # loss = (torch.FloatTensor(weight_bias) * loss).mean()
+            # indices = np.arange(self.batch_size, dtype=np.int32)
             absolute_errors = (online - next_Q).abs()
             # Update priority
             self.per_memory.update_priorities(tree_idx, absolute_errors)
@@ -178,27 +189,78 @@ class Agent:
         if self.ddqn:
             self.model.target.load_state_dict(self.model.online.state_dict())
 
+    # def to_gray(self, state):
+    #     gray = [0.2989, 0.5870, 0.1140]
+    #     state = np.dot(state[..., :3], gray)
+    #     return state
+
+    # def screen_resize(self, state):
+    #     _, height, width = state.shape
+    #     state = state[:, int(height*0.6):int(width*0.8)]
+    #     plt.imshow(state.transpose(1, 2, 0), interpolation='nearest')
+    #     plt.show()
+    #     return state
+
+    def process_screen(self, state):
+        state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY)
+        state = cv2.resize(state, dsize=(120, 80), interpolation=cv2.INTER_CUBIC)
+        state[state < 255] = 0
+        return state
+
     def run(self):
         decay_step = 0
         t0 = time.perf_counter()
         last_rewards = deque(maxlen=10)
+        # self.env.reset()
+
         for e in range(self.EPISODES):
-            if (time.perf_counter() - t0) / 60 > 30:
+            if (time.perf_counter() - t0) / 60 > 20:
                 break
-            state = self.env.reset()
-            state = torch.tensor(state, dtype=torch.float)
+            self.env.reset()
+
+            state = self.env.render(mode='rgb_array')
+            state = self.process_screen(state)
+
+            # plt.imshow(state, interpolation='nearest')
+            # plt.show()
+
+            state = state[..., np.newaxis]
+            state = np.append(state, state, 2)
+            state = np.append(state, state, 2)
+            state = state.transpose((2, 0, 1))
+
+            state_tensor = np.ascontiguousarray(state)
+            state_tensor = torch.from_numpy(state_tensor)
+            state_tensor = torch.tensor(state_tensor, dtype=torch.float)
+
             done = False
             i = 0
             total = 0
             while not done:
                 self.env.render()
                 decay_step += 1
-                action = self.act(state, decay_step)
-                next_state, reward, done, _ = self.env.step(action)
-                next_state = torch.tensor(next_state, dtype=torch.float)
-                total += reward
-                self.remember(state, action, reward, next_state, done)
+                action = self.act(state_tensor, decay_step)
+                _, reward, done, _ = self.env.step(action)
+
+                next_state = self.env.render(mode='rgb_array')
+                next_state = self.process_screen(next_state)
+                next_state = next_state[..., np.newaxis]
+                next_state = next_state.transpose((2, 0, 1))
+                next_state = np.append(state, next_state, 0)
+                next_state = np.delete(next_state, 0, 0)
                 state = next_state
+
+                next_state = np.ascontiguousarray(next_state)
+                next_state = torch.from_numpy(next_state)
+                next_state = torch.tensor(next_state, dtype=torch.float)
+
+                total += reward
+                self.remember(state_tensor, action, reward, next_state, done)
+
+                state_tensor = np.ascontiguousarray(state)
+                state_tensor = torch.from_numpy(state_tensor)
+                state_tensor = torch.tensor(state_tensor, dtype=torch.float)
+
                 i += 1
                 if done:
                     print("episode: {}/{}, score: {}".format(e, self.EPISODES, i))
