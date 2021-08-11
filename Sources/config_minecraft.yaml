@@ -1,0 +1,35 @@
+#how to run the experiment:
+game: minecraft
+network: ConvNet
+render: True
+more_info: True
+fix_seed: True
+rewards_file: rewards.txt
+
+#epsilon greedy policy settings:
+epsilon_start: 1.0
+epsilon_min: 0.05
+epsilon_decay: 0.0005
+gamma: 0.95
+
+#neural net learning parameters:
+batch_size: 32
+target_sync: 2 # in ddqn
+nFrames: 2
+skipFrames: 3
+optimizer: RMSprop #todo
+learning_rate: 0.00025
+loss: SmoothL1Loss #todo
+
+#other learning settings:
+nb_episodes: 500
+use_ddqn: True
+use_epsilon_greedy: True
+
+#memory settings:
+use_PER: True
+mem_size: 10000
+
+#minecraft specific:
+number_actions: 3
+compass_file: compass.txt

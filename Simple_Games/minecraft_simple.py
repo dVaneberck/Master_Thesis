@@ -106,17 +106,14 @@ class Agent:
 
         self.EPISODES = 10000000
 
-
-
     def run(self):
 
         decay_step = 0
         reward = 0
         for e in range(self.EPISODES):
 
-            self.env.seed(3)
+            self.env.seed(7)
             state = self.env.reset()
-
 
             done = False
             i = 0
@@ -192,7 +189,6 @@ class Agent:
                     print("episode: {}/{}, life time: {}, total rew: {}".format(e, self.EPISODES, i, total))
                     if total > 100:
                         print("goal reached")
-
 
 
 if __name__ == "__main__":

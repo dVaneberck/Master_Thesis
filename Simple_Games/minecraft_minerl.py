@@ -146,6 +146,7 @@ class Agent:
         self.use_cuda = torch.cuda.is_available()
 
         self.nFrames = 3
+        self.env.seed(42)
         self.env = SkipFrame(self.env, skip=3)
         self.env = ChooseObservation(self.env)
         self.env = GrayScaleObservation(self.env)

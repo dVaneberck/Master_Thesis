@@ -187,6 +187,7 @@ class Agent:
                 break
             state = self.env.reset()
             state = torch.tensor(state, dtype=torch.float)
+
             done = False
             i = 0
             total = 0
