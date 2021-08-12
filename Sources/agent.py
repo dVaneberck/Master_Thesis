@@ -39,6 +39,7 @@ class Agent:
         self.ddqn = config["use_ddqn"]
         self.epsilon_greedy = config["use_epsilon_greedy"]
         self.PER_use = config["use_PER"]
+        self.imp_sampling = False
 
         self.model = network(input_shape=self.nFrames, action_space=nb_actions, n_features=n_features).float()
         self.model = self.model.to(self.device)
@@ -85,7 +86,7 @@ class Agent:
 
     def update_net(self, reward_log):
         if self.PER_use:
-            minibatch, tree_idx = self.per_memory.sample(self.batch_size)
+            minibatch, tree_idx, weight_bias = self.per_memory.sample(self.batch_size)
         else:
             if len(self.memory) < self.batch_size:
                 return
@@ -124,6 +125,8 @@ class Agent:
         loss = self.loss_fn(online_Q, td)
 
         if self.PER_use:
+            if self.imp_sampling:
+                loss = (torch.FloatTensor(weight_bias) * loss).mean()
             absolute_errors = (online_Q - next_Q).abs()
             # Update priority
             self.per_memory.update_priorities(tree_idx, absolute_errors)

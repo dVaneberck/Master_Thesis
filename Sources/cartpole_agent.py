@@ -15,7 +15,7 @@ class CartpoleAgent(Agent):
 
         self.state_size = self.env.observation_space
         self.number_actions = self.env.action_space.n
-        super(CartpoleAgent, self).__init__(network, self.number_actions)
+        super(CartpoleAgent, self).__init__(network, config, self.env.observation_space.shape[0], self.number_actions)
 
         save_dir = Path("checkpoints_cartpole") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         save_dir.mkdir(parents=True)

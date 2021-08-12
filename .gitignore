@@ -18,3 +18,15 @@ Simple_Games/img/*
 
 Simple_Games/models/*
 
+
+Sources/__pycache__/
+
+Sources/checkpoints
+
+Sources/checkpoints_cartpole
+
+Sources/checkpoints_mario
+
+Sources/checkpoints_minerl
+
+Sources/rewards.txt

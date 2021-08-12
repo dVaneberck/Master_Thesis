@@ -25,7 +25,7 @@ class MarioAgent(Agent):
         self.env = GrayScaleObservation(self.env)
         self.env = ResizeObservation(self.env, shape=84)
         self.number_actions = self.env.action_space.n
-        super(MarioAgent, self).__init__(network, 3136, self.number_actions)
+        super(MarioAgent, self).__init__(network, config, 3136, self.number_actions)
         self.env = FrameStack(self.env, num_stack=self.nFrames)
         self.state_size = self.env.observation_space
 
