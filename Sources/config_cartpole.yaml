@@ -1,8 +1,8 @@
 #how to run the experiment:
 game: cartpole
-network: BigMLP
+network: BigMLP #BigMLP or ConvNet
 render: True
-more_info: True
+more_info: False
 fix_seed: False
 rewards_file: rewards.txt
 
