@@ -7,7 +7,6 @@ class PrioritizedExperienceReplay:
         self.alpha = alpha
         self.capacity = capacity
         self.buffer = SumTree(capacity)
-        self.frame = 1
         self.beta = beta
         self.beta_inc = beta_inc
         self.elements_buffer = 0

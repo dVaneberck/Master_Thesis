@@ -32,7 +32,7 @@ class PrioritizedExperienceReplay:
         for i in range(batch_size):
             value = np.random.uniform(priority_range * i, priority_range * (i + 1))
             indexes[i], tree_val, data = self.buffer.get(value)
-            while data == 0:
+            while data == 0: # Prevent some case were a value doesn't return data from the sum tree
                 value = np.random.uniform(priority_range * i, priority_range * (i + 1))
                 indexes[i], tree_val, data = self.buffer.get(value)
             else:
@@ -40,7 +40,7 @@ class PrioritizedExperienceReplay:
                 batch.append(data)
 
         bias_weigth = np.power(self.buffer.n_elements * (priority_bias / priority_total), -self.beta)
-        bias_weigth = bias_weigth / bias_weigth.max()
+        bias_weigth = bias_weigth / bias_weigth.max()  #Importance sampling computation
         return batch, indexes, bias_weigth
 
     def update_priorities(self, indexes, priorities_difference):
