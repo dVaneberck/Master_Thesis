@@ -65,11 +65,11 @@ class ResizeObservation(gym.ObservationWrapper):
 class ChooseCompassObservation(gym.ObservationWrapper):
     def __init__(self, env, agent):
         super().__init__(env)
-        self.observation_space = self.observation_space["compass"]
+        self.observation_space = self.observation_space["compassAngle"]
         self.agent = agent
 
     def observation(self, observation):
-        self.agent.compass_array.append(observation["compass"])
+        self.agent.compass_array.append(observation["compassAngle"])
         return observation["compass"]
 
 
@@ -80,5 +80,5 @@ class ChoosePovObservation(gym.ObservationWrapper):
         self.agent = agent
 
     def observation(self, observation):
-        self.agent.compass_array.append(observation["compass"])
+        self.agent.compass_array.append(observation["compassAngle"])
         return observation["pov"]
