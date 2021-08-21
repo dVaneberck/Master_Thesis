@@ -1,23 +1,5 @@
 */venv
 */.idea
-First_Presentation/__pycache__/
-
-Simple_Games/__pycache__/
-
-Simple_Games/todo/__pycache__/
-
-Simple_Games/checkpoints
-
-Simple_Games/checkpoints_cartpole
-
-Simple_Games/checkpoints_mario
-
-Simple_Games/checkpoints_cartpole_num
-
-Simple_Games/img/*
-
-Simple_Games/models/*
-
 
 Sources/__pycache__/
 
