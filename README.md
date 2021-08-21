@@ -4,7 +4,7 @@ This is the repository for the thesis master Reinforcement learning based AI to 
 
 ## Installation
 
-The requirement file should contain all the library you need to run the code. However, with the default installation, the CPU version of Pytorch is installed and thus only the CPU is usable to run the program. If you want to use your GPU to accelerate the computation, you need to install CUDA (check if your GPU is compatible) and a pytorch version compatible with CUDA.
+The requirement file should contain almost all the library you need to run the code. However, you need to install a specific version of Pytorch. If you don't have a GPU which is compatible with CUDA, you can install the CPU version of Pytorch. If you want to use your GPU to accelerate the computation, you need to install CUDA (check if your GPU is compatible) and a pytorch version compatible with CUDA. With the Pytorch Cuda version, you can run both GPU and CPU version.
 
 Here installation link for both:
 
