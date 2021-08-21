@@ -18,4 +18,4 @@ You will find the program file in the directory Sources to run the code. It's th
 
 > python reinforcement_learning.py config_cartpole.yaml
 
-If you want to run another envrionment, you can use one of the three configuration file we propose. If you want to create your own configuration, you can by editing the actual configuration files or by creating your own. Note that only Cartpole support both Convnet and MLP utilisation, others envrionment are only usable with MLP net.
+If you want to run another envrionment, you can use one of the three configuration file we propose. If you want to create your own configuration, you can by editing the actual configuration files or by creating your own. Note that Cartpole and Minecraft support both Convnet and MLP utilisation, Mario however can only support Convnet.
