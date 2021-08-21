@@ -17,9 +17,7 @@ batch_size: 32
 target_sync: 20 # in ddqn
 nFrames: 4
 skipFrames: 0
-optimizer: RMSprop #todo
 learning_rate: 0.00025
-loss: SmoothL1Loss #todo
 
 #other learning settings:
 nb_episodes: 500
