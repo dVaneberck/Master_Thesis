@@ -66,6 +66,6 @@ class MarioAgent(Agent):
 
         next_state, reward, done, info = self.env.step(action)
         next_state = next_state.__array__()
-        next_state = torch.tensor(next_state, dtype=torch.float, device=self.device)  # ?device?
+        next_state = torch.tensor(next_state, dtype=torch.float, device=self.device)
 
         return next_state, reward, done, info, action

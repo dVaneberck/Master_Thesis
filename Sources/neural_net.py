@@ -62,7 +62,7 @@ class BigMLP(NeuralNet):
 
 class ConvNet(NeuralNet):
 
-    def __init__(self, input_shape, action_space, **kwargs):  # changer parametres et prendre input size
+    def __init__(self, input_shape, action_space, **kwargs):
         super(ConvNet, self).__init__()
         self.online = nn.Sequential(
             nn.Conv2d(in_channels=input_shape, out_channels=32, kernel_size=8, stride=4),
